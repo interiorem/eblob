@@ -247,7 +247,7 @@ int eblob_index_blocks_fill(struct eblob_base_ctl *bctl)
 
 	bctl->bloom = calloc(1, bctl->bloom_size);
 	if (bctl->bloom == NULL) {
-		err = -err;
+		err = -ENOMEM;
 		goto err_out_exit;
 	}
 	eblob_stat_set(bctl->stat, EBLOB_LST_BLOOM_SIZE, bctl->bloom_size);
@@ -267,12 +267,9 @@ int eblob_index_blocks_fill(struct eblob_base_ctl *bctl)
 		block = &bctl->index_blocks[block_id++];
 		block->start_offset = offset;
 		for (i = 0; i < bctl->back->cfg.index_block_size && offset < bctl->index_ctl.size; ++i) {
-			err = pread(bctl->index_ctl.fd, &dc, sizeof(struct eblob_disk_control), offset);
-			if (err != sizeof(struct eblob_disk_control)) {
-				if (err < 0)
-					err = -errno;
+			err = __eblob_read_ll(bctl->index_ctl.fd, &dc, sizeof(struct eblob_disk_control), offset);
+			if (err)
 				goto err_out_drop_tree;
-			}
 
 			/* Check record for validity */
 			err = eblob_check_record(bctl, &dc);
