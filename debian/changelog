@@ -1,3 +1,9 @@
+eblob (0.23.12-16) unstable; urgency=medium
+
+  * Fix returning wrong error by eblob_index_blocks_fill()
+
+ -- Kirill Smorodinnikov <shaitkir@gmail.com>  Mon, 23 Oct 2017 13:36:50 +0300
+
 eblob (0.23.12-15) unstable; urgency=medium
 
   * defrag: sort bctls by size of removed records
