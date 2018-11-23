@@ -3591,17 +3591,22 @@ int eblob_verify_checksum(struct eblob_backend *b, struct eblob_key *key, struct
 	    wc->flags & (BLOB_DISK_CTL_NOCSUM | BLOB_DISK_CTL_REMOVE | BLOB_DISK_CTL_UNCOMMITTED))
 		return 0;
 
+	int err = 0;
+
+	// TODO(shaitan): check if record already marked as corrupted and return -EILSEQ
+
 	if (wc->total_size <= wc->total_data_size + sizeof(struct eblob_disk_control)) {
+		err = -EINVAL;
 		eblob_log(b->cfg.log, EBLOB_LOG_ERROR, "blob: %i: %s: %s: record doesn't have valid footer: "
 		                                       "total_size: %" PRIu64 ", total_data_size + eblob_disk_control: %" PRIu64,
 		          wc->index, eblob_dump_id(key->id), __func__,
 		          wc->total_size, wc->total_data_size + sizeof(struct eblob_disk_control));
-		return -EINVAL;
+		HANDY_COUNTER_INCREMENT(("eblob.%u.verify_checksum.%d", b->cfg.stat_id, err), 1);
+		return err;
 	}
 
 	HANDY_TIMER_SCOPE(("eblob.%u.verify_checksum", b->cfg.stat_id));
 
-	int err;
 	if (wc->flags & BLOB_DISK_CTL_CHUNKED_CSUM)
 		err = eblob_verify_mmhash(b, key, wc);
 	else
@@ -3609,6 +3614,10 @@ int eblob_verify_checksum(struct eblob_backend *b, struct eblob_key *key, struct
 
 	if (err == -EILSEQ)
 		eblob_mark_entry_corrupted(b, key, wc);
+
+	if (err) {
+		HANDY_COUNTER_INCREMENT(("eblob.%u.verify_checksum.%d", b->cfg.stat_id, err), 1);
+	}
 
 	return err;
 }
