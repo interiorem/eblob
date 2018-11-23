@@ -3607,7 +3607,7 @@ int eblob_verify_checksum(struct eblob_backend *b, struct eblob_key *key, struct
 	else
 		err = eblob_verify_sha512(b, key, wc);
 
-	if (err)
+	if (err == -EILSEQ)
 		eblob_mark_entry_corrupted(b, key, wc);
 
 	return err;
