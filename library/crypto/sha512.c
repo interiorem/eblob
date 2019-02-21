@@ -223,74 +223,16 @@ int
 sha512_file (int fd, off_t offset, size_t count, void *resblock)
 {
   struct sha512_ctx ctx;
-  size_t sum, total = 0;
-
-  char *buffer = malloc (BLOCKSIZE + 72);
-  if (!buffer)
-    return -ENOMEM;
-
   /* Initialize the computation context.  */
   sha512_init_ctx (&ctx);
 
-  /* Iterate over full file contents.  */
-  while (1)
-    {
-      /* We read the file in blocks of BLOCKSIZE bytes.  One call of the
-         computation function processes the whole buffer so that with the
-         next round of the loop another block can be read.  */
-      ssize_t n;
-      sum = 0;
-
-      /* Read block.  Take care for partial reads.  */
-      while (1)
-        {
-            n = pread(fd, buffer + sum, BLOCKSIZE - sum, offset);
-            if (n == -1) {
-                if (errno == EINTR) {
-                    continue;
-                } else {
-                    free (buffer);
-                    return -errno;
-                }
-            }
-
-          sum += n;
-          offset += n;
-
-          if (sum == BLOCKSIZE)
-            break;
-
-          if (n == 0) { /* eof */
-              if (total + sum < count) {
-                  free (buffer);
-                  return -ESPIPE;
-              } else {
-                  goto process_partial_block;
-              }
-          }
-        }
-
-      if (total + sum < count) {
-          total += sum;
-      } else {
-          goto process_partial_block;
-      }
-      /* Process buffer with BLOCKSIZE bytes.  Note that
-                        BLOCKSIZE % 128 == 0
-       */
-      sha512_process_block (buffer, BLOCKSIZE, &ctx);
-    }
-
- process_partial_block:
-
-  /* Process any remaining bytes.  */
-  sum = count - total;
-  if (sum > 0)
-    sha512_process_bytes (buffer, sum, &ctx);
+  const int err = sha512_file_ctx(fd, offset, count, &ctx);
+  if (err) {
+    return err;
+  }
 
   /* Construct result in desired memory.  */
   sha512_finish_ctx (&ctx, resblock);
-  free (buffer);
   return 0;
 }
 
