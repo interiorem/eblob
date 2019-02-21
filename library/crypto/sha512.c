@@ -248,60 +248,46 @@ sha512_file_ctx (int fd, off_t offset, size_t count, struct sha512_ctx *ctx)
     return -ENOMEM;
 
   /* Iterate over full file contents.  */
-  while (1)
+  while (total < count)
     {
       /* We read the file in blocks of BLOCKSIZE bytes.  One call of the
          computation function processes the whole buffer so that with the
          next round of the loop another block can be read.  */
       ssize_t n;
+      const size_t block_size = (count - total) > BLOCKSIZE ? BLOCKSIZE : (count - total);
       sum = 0;
 
       /* Read block.  Take care for partial reads.  */
-      while (1)
+      while (sum != block_size)
         {
-            n = pread(fd, buffer + sum, BLOCKSIZE - sum, offset);
-            if (n == -1) {
-                if (errno == EINTR) {
-                    continue;
-                } else {
-                    free (buffer);
-                    return -errno;
-                }
+          n = pread(fd, buffer + sum, block_size - sum, offset);
+          if (n == -1) {
+            if (errno == EINTR) {
+              continue;
+            } else {
+              free (buffer);
+              return -errno;
             }
+          } else if (n == 0) { /* eof */
+            free (buffer);
+            return -ESPIPE;
+          }
 
           sum += n;
           offset += n;
-
-          if (sum == BLOCKSIZE)
-            break;
-
-          if (n == 0) { /* eof */
-              if (total + sum < count) {
-                  free (buffer);
-                  return -ESPIPE;
-              } else {
-                  goto process_partial_block;
-              }
-          }
         }
 
-      if (total + sum < count) {
-          total += sum;
+      if (block_size == BLOCKSIZE) {
+        /* Process buffer with BLOCKSIZE bytes.  Note that
+                          BLOCKSIZE % 128 == 0
+         */
+        sha512_process_block (buffer, BLOCKSIZE, ctx);
       } else {
-          goto process_partial_block;
+        sha512_process_bytes (buffer, block_size, ctx);
       }
-      /* Process buffer with BLOCKSIZE bytes.  Note that
-                        BLOCKSIZE % 128 == 0
-       */
-      sha512_process_block (buffer, BLOCKSIZE, ctx);
+
+      total += block_size;
     }
-
- process_partial_block:
-
-  /* Process any remaining bytes.  */
-  sum = count - total;
-  if (sum > 0)
-    sha512_process_bytes (buffer, sum, ctx);
 
   free (buffer);
   return 0;
