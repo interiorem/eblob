@@ -470,6 +470,10 @@ static int datasort_split_iterator(struct eblob_disk_control *dc,
 	 */
 	if (c == NULL || (dcfg->chunk_size > 0 && c->offset + dc->disk_size >= dcfg->chunk_size)
 			|| (dcfg->chunk_limit > 0 && c->count >= dcfg->chunk_limit)) {
+		if (c) {
+			// sync previous chunk to control number of low priority dirty pages
+			eblob_fdatasync(c->fd);
+		}
 		/* TODO: here we can plug sort for speedup */
 		c = datasort_add_chunk(dcfg, dcfg->chunks_dir);
 		if (c == NULL) {
@@ -736,6 +740,8 @@ static struct datasort_chunk *datasort_sort_chunk(struct datasort_cfg *dcfg,
 			"defrag: sorted chunk: fd: %d, count: %" PRIu64 ", size: %" PRIu64,
 			sorted_chunk->fd, sorted_chunk->count, sorted_chunk->offset);
 
+	// sync chunk after sort to control number of low priority dirty pages
+	eblob_fdatasync(sorted_chunk->fd);
 	return sorted_chunk;
 
 err_destroy_chunk:
@@ -853,6 +859,7 @@ static struct datasort_chunk *datasort_merge(struct datasort_cfg *dcfg)
 {
 	struct datasort_chunk *chunk = NULL, *merged_chunk = NULL;
 	uint64_t total_items = 0;
+	uint64_t offset = 0;
 	int err = 0;
 
 	assert(dcfg != NULL);
@@ -903,6 +910,12 @@ static struct datasort_chunk *datasort_merge(struct datasort_cfg *dcfg)
 		merged_chunk->index[total_count] = *dc;
 		merged_chunk->offset += dc->disk_size;
 		merged_chunk->count++;
+
+		// sync merged_chunk after each 1GB to control number of low priority dirty pages
+		if ((merged_chunk->offset - offset) > (1 << 30)) {
+			offset = merged_chunk->offset;
+			eblob_fdatasync(merged_chunk->fd);
+		}
 	}
 	assert(total_items == merged_chunk->count);
 
