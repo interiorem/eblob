@@ -1,3 +1,9 @@
+eblob (0.24.7) unstable; urgency=low
+
+  * defrag: call fdatasync during datasort
+
+ -- Kirill Smorodinnikov <shaitkir@gmail.com>  Mon, 25 Mar 2019 12:34:28 +0300
+
 eblob (0.24.6) unstable; urgency=low
 
   * sha512: remove duplicated code
