@@ -26,10 +26,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if USE_UNLOCKED_IO
-# include "unlocked-io.h"
-#endif
-
 #define _XOPEN_SOURCE 600
 
 #include <unistd.h>
