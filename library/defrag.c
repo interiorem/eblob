@@ -137,6 +137,10 @@ static int eblob_defrag_bctls_cmp(const void *lhs, const void *rhs) {
 	       eblob_stat_get(left->stat, EBLOB_LST_REMOVED_SIZE);
 }
 
+int eblob_defrag(struct eblob_backend *b) {
+	return eblob_defrag_in_dir(b, NULL);
+}
+
 /*!
  * eblob_defrag() - defrag (blocking call, synchronized)
  * Divides all bctls in backend into ones that need defrag/sort and ones that
@@ -144,7 +148,7 @@ static int eblob_defrag_bctls_cmp(const void *lhs, const void *rhs) {
  * and record counts is within blob_size / records_in_blob limits and runs
  * eblob_generate_sorted_data() on each such sub-group.
  */
-int eblob_defrag(struct eblob_backend *b)
+int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir)
 {
 	struct eblob_base_ctl *bctl, **bctls = NULL;
 	int err = 0, bctl_cnt = 0, bctl_num = 0;
@@ -301,6 +305,7 @@ int eblob_defrag(struct eblob_backend *b)
 					.bctl = bctls + previous,
 					.bctl_cnt = current - previous,
 					.log = b->cfg.log,
+					.chunks_dir = chunks_dir ? chunks_dir : b->cfg.chunks_dir,
 				};
 				/* Sort all bases between @previous and @current
 				 * Do not sort one base if its defragmentation is not required.
@@ -350,6 +355,7 @@ void *eblob_defrag_thread(void *data)
 {
 	struct eblob_backend *b = data;
 	uint64_t sleep_time;
+	char *chunks_dir = NULL;
 
 	if (b == NULL)
 		return NULL;
@@ -371,31 +377,64 @@ void *eblob_defrag_thread(void *data)
 			continue;
 		}
 
+		pthread_mutex_lock(&b->defrag_state_lock);
 		if (b->want_defrag == EBLOB_DEFRAG_STATE_NOT_STARTED)
 			b->want_defrag = EBLOB_DEFRAG_STATE_DATA_COMPACT;
 
-		eblob_defrag(b);
+		chunks_dir = b->defrag_chunks_dir;
+		b->defrag_chunks_dir = NULL;
+		pthread_mutex_unlock(&b->defrag_state_lock);
+
+		eblob_defrag_in_dir(b, chunks_dir);
+
+		free(chunks_dir);
+
+		pthread_mutex_lock(&b->defrag_state_lock);
 		b->want_defrag = EBLOB_DEFRAG_STATE_NOT_STARTED;
+		pthread_mutex_unlock(&b->defrag_state_lock);
+
 		sleep_time = datasort_next_defrag(b);
 	}
 
 	return NULL;
 }
 
-int eblob_start_defrag_level(struct eblob_backend *b, enum eblob_defrag_state level)
+int eblob_start_defrag_in_dir(struct eblob_backend *b, enum eblob_defrag_state level, const char *chunks_dir)
 {
+	int err = 0;
 	if (b->cfg.blob_flags & EBLOB_DISABLE_THREADS) {
 		return -EINVAL;
 	}
 
+	pthread_mutex_lock(&b->defrag_state_lock);
+
 	if (b->want_defrag) {
-		eblob_log(b->cfg.log, EBLOB_LOG_INFO,
-				"defrag: defragmentation is in progress.\n");
-		return -EALREADY;
+		eblob_log(b->cfg.log, EBLOB_LOG_INFO, "defrag: defragmentation is in progress.\n");
+		err = -EALREADY;
+		goto err_out_unlock;
 	}
 
 	b->want_defrag = level;
-	return 0;
+	if (chunks_dir) {
+		free(b->defrag_chunks_dir);
+		b->defrag_chunks_dir = strdup(chunks_dir);
+		if (!b->defrag_chunks_dir) {
+			b->want_defrag = EBLOB_DEFRAG_STATE_NOT_STARTED;
+			err = -ENOMEM;
+			eblob_log(b->cfg.log, EBLOB_LOG_ERROR, "defrag: failed to trigger defrag: %s[%d]",
+			          strerror(-err), err);
+			goto err_out_unlock;
+		}
+	}
+
+err_out_unlock:
+	pthread_mutex_unlock(&b->defrag_state_lock);
+	return err;
+}
+
+int eblob_start_defrag_level(struct eblob_backend *b, enum eblob_defrag_state level)
+{
+	return eblob_start_defrag_in_dir(b, level, NULL);
 }
 
 int eblob_start_defrag(struct eblob_backend *b)
@@ -419,16 +458,25 @@ int eblob_defrag_status(struct eblob_backend *b)
 
 int eblob_stop_defrag(struct eblob_backend *b)
 {
+	int err = 0;
 	if (b->cfg.blob_flags & EBLOB_DISABLE_THREADS) {
 		return -EINVAL;
 	}
 
+	pthread_mutex_lock(&b->defrag_state_lock);
+
 	if (b->want_defrag == EBLOB_DEFRAG_STATE_NOT_STARTED) {
 		eblob_log(b->cfg.log, EBLOB_LOG_INFO,
 				"defrag: defragmentation is not started.\n");
-		return -EALREADY;
+		err = -EALREADY;
+		goto err_out_unlock;
 	}
 
 	b->want_defrag = EBLOB_DEFRAG_STATE_NOT_STARTED;
-	return 0;
+	free(b->defrag_chunks_dir);
+	b->defrag_chunks_dir = NULL;
+
+err_out_unlock:
+	pthread_mutex_unlock(&b->defrag_state_lock);
+	return err;
 }

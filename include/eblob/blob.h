@@ -697,6 +697,14 @@ int eblob_start_defrag(struct eblob_backend *b);
  */
 int eblob_start_defrag_level(struct eblob_backend *b, enum eblob_defrag_state level);
 
+/*!
+ * eblob_start_defrag_in_dir() - overload version of eblob_start_defrag with defrag-level and chunks_dir params.
+ * @b - eblob backend instance
+ * @level - level of defragmentation
+ * @chunks_dir - directory for temporary chunks (overrides value specified in config)
+ */
+int eblob_start_defrag_in_dir(struct eblob_backend *b, enum eblob_defrag_state level, const char *chunks_dir);
+
 /*
  * eblob_start_index_sort() - forces defragmentation thread to sort index regardless of timer
  */
@@ -770,6 +778,8 @@ int eblob_sync(struct eblob_backend *b);
 int eblob_defrag(struct eblob_backend *b);
 int eblob_periodic(struct eblob_backend *b);
 int eblob_inspect(struct eblob_backend *b);
+
+int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir);
 
 enum eblob_inspect_state {
 	EBLOB_INSPECT_STATE_NOT_STARTED,	/* no inspection is in progress */

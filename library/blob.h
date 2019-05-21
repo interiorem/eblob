@@ -446,11 +446,20 @@ struct eblob_backend {
 	char			*base_dir;
 
 	/*
+	 * lock for changing want_defrag and defrag_chunks_dir
+	 */
+	pthread_mutex_t		defrag_state_lock;
+	/*
 	 * Set when defrag/data-sort are explicitly requested
 	 * 0:		data-sort should be preformed according to defrag_timeout
 	 * otherwise:	defragmentation explicitly requested via eblob_start_defrag() with appropriate defrag level set in parameter
 	 */
-	volatile int		want_defrag;
+	int			want_defrag;
+	/*
+	 * If set, overrides chunks_dir from config file for the next defragmentation
+	 */
+	char			*defrag_chunks_dir;
+
 	/* Cached vfs stats */
 	struct statvfs		vfs_stat;
 	/* File descriptor used for database locking */

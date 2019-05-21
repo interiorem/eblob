@@ -3185,6 +3185,7 @@ void eblob_cleanup(struct eblob_backend *b)
 	free(b->base_dir);
 	free(b->cfg.file);
 	free(b->cfg.chunks_dir);
+	free(b->defrag_chunks_dir);
 
 	eblob_stat_destroy(b->stat);
 	eblob_stat_destroy(b->stat_summary);
@@ -3369,9 +3370,13 @@ struct eblob_backend *eblob_init(struct eblob_config *c)
 	if (err != 0)
 		goto err_out_periodic_lock_destroy;
 
-	err = eblob_json_stat_init(b);
+	err = eblob_mutex_init(&b->defrag_state_lock);
 	if (err != 0)
 		goto err_out_inspect_lock_destroy;
+
+	err = eblob_json_stat_init(b);
+	if (err != 0)
+		goto err_out_defrag_state_lock_destroy;
 
 	if (!(b->cfg.blob_flags & EBLOB_DISABLE_THREADS)) {
 		err = pthread_create(&b->sync_tid, NULL, eblob_sync_thread, b);
@@ -3413,6 +3418,8 @@ err_out_join_sync:
 	pthread_join(b->sync_tid, NULL);
 err_out_json_stat_destroy:
 	eblob_json_stat_destroy(b);
+err_out_defrag_state_lock_destroy:
+	pthread_mutex_destroy(&b->defrag_state_lock);
 err_out_inspect_lock_destroy:
 	pthread_mutex_destroy(&b->inspect_lock);
 err_out_periodic_lock_destroy:

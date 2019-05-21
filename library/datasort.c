@@ -94,13 +94,13 @@ static int datasort_base_get_path(struct eblob_backend *b, struct eblob_base_ctl
 	return 0;
 }
 
-static int datasort_chunk_get_path(struct eblob_backend *b, struct eblob_base_ctl *bctl,
+static int datasort_chunk_get_path(struct datasort_cfg *dcfg, struct eblob_base_ctl *bctl,
 		char *path, unsigned int path_max)
 {
-	if (b == NULL || bctl == NULL || path == NULL || b->cfg.chunks_dir == NULL)
+	if (dcfg == NULL || dcfg->chunks_dir == NULL ||  dcfg->b == NULL || bctl == NULL || path == NULL)
 		return -EINVAL;
 
-	snprintf(path, path_max, "%s/chunks-%u-0.%d", b->cfg.chunks_dir, b->cfg.stat_id, bctl->index);
+	snprintf(path, path_max, "%s/chunks-%u-0.%d", dcfg->chunks_dir, dcfg->b->cfg.stat_id, bctl->index);
 	return 0;
 }
 
@@ -305,7 +305,7 @@ static char *datasort_mkdtemp(struct datasort_cfg *dcfg, int for_chunks)
 	}
 
 	if (for_chunks) {
-		if (datasort_chunk_get_path(dcfg->b, dcfg->bctl[0], path, PATH_MAX) != 0) {
+		if (datasort_chunk_get_path(dcfg, dcfg->bctl[0], path, PATH_MAX) != 0) {
 			EBLOB_WARNX(dcfg->log, EBLOB_LOG_ERROR, "defrag: datasort_chunk_get_path");
 			goto err_free_path;
 		}
@@ -1023,9 +1023,13 @@ err:
 static void datasort_destroy(struct datasort_cfg *dcfg)
 {
 	pthread_mutex_destroy(&dcfg->lock);
+
 	free(dcfg->dir);
+	dcfg->dir = NULL;
+
 	free(dcfg->chunks_dir);
-};
+	dcfg->chunks_dir = NULL;
+}
 
 /*!
  * Removes from resulting blob entries that were removed during data-sort
@@ -1415,6 +1419,7 @@ static void datasort_cleanup(struct datasort_cfg *dcfg)
 int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 {
 	int err, n, ioprio;
+	char *chunks_dir = NULL;
 
 	/* Sanity */
 	if (dcfg == NULL || dcfg->b == NULL || dcfg->bctl == NULL || dcfg->log == NULL)
@@ -1424,6 +1429,9 @@ int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		if (dcfg->bctl[n] == NULL)
 			return -EINVAL;
+
+	chunks_dir = dcfg->chunks_dir;
+	dcfg->chunks_dir = NULL;
 
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		EBLOB_WARNX(dcfg->log, EBLOB_LOG_NOTICE, "defrag: sorting: %s", dcfg->bctl[n]->name);
@@ -1475,8 +1483,10 @@ int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 		goto err_stop;
 	}
 
-	if (dcfg->b->cfg.chunks_dir != NULL) {
+	if (chunks_dir != NULL) {
+		// TODO(shaitan): Ugly code should be rewritten
 		/* Create tmp directory for chunks */
+		dcfg->chunks_dir = chunks_dir;
 		dcfg->chunks_dir = datasort_mkdtemp(dcfg, 1);
 		if (dcfg->chunks_dir == NULL) {
 			err = -EIO;
