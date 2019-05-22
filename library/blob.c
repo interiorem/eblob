@@ -3177,6 +3177,14 @@ void eblob_cleanup(struct eblob_backend *b)
 
 	eblob_json_stat_destroy(b);
 
+	pthread_mutex_destroy(&b->defrag_state_lock);
+	pthread_mutex_destroy(&b->inspect_lock);
+	pthread_mutex_destroy(&b->periodic_lock);
+	pthread_mutex_destroy(&b->sync_lock);
+	pthread_mutex_destroy(&b->defrag_lock);
+
+	eblob_event_destroy(&b->exit_event);
+
 	eblob_bases_cleanup(b);
 
 	eblob_hash_destroy(&b->hash);
@@ -3189,6 +3197,8 @@ void eblob_cleanup(struct eblob_backend *b)
 
 	eblob_stat_destroy(b->stat);
 	eblob_stat_destroy(b->stat_summary);
+
+	pthread_mutex_destroy(&b->lock);
 
 	(void)lockf(b->lock_fd, F_ULOCK, 0);
 	(void)close(b->lock_fd);
