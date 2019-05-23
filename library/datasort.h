@@ -82,6 +82,20 @@ struct datasort_cfg {
 	uint64_t			chunk_size;
 	/* Limit on number of records in one chunk */
 	uint64_t			chunk_limit;
+	/* Pointer to backend */
+	struct eblob_backend		*b;
+	/* Logging */
+	struct eblob_log		*log;
+	/* Pointer to one or more base controls */
+	struct eblob_base_ctl		**bctl;
+	/* Number of pointers in **bctl */
+	int				bctl_cnt;
+	/* Directory for chunks. If not specified */
+	const char			*chunks_dir;
+};
+
+struct datasort_ctl {
+	struct datasort_cfg		*cfg;
 	/* Lock used by blob iterator */
 	pthread_mutex_t			lock;
 	/* Splitter chunks */
@@ -94,14 +108,6 @@ struct datasort_cfg {
 	char				*dir;
 	/* Chunks directory - if not defined, then chunks are stored in dir */
 	char				*chunks_dir;
-	/* Pointer to backend */
-	struct eblob_backend		*b;
-	/* Logging */
-	struct eblob_log		*log;
-	/* Pointer to one or more base controls */
-	struct eblob_base_ctl		**bctl;
-	/* Number of pointers in **bctl */
-	int				bctl_cnt;
 	/* Pointer to sorted bctl */
 	struct eblob_base_ctl		*sorted_bctl;
 };
