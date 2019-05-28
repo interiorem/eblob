@@ -1075,7 +1075,7 @@ int eblob_blob_iterate(struct eblob_iterate_control *ctl)
 
 	/* Wait until nobody uses bctl->data */
 	eblob_base_wait_locked(ctl->base);
-	err = eblob_base_setup_data(ctl->base, 0);
+	err = eblob_base_setup_data(ctl->base);
 	if (err) {
 		pthread_mutex_unlock(&ctl->base->lock);
 		ctl->err = err;

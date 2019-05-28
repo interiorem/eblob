@@ -64,7 +64,7 @@ static const char *eblob_get_base(const char *blob_base)
 	return base;
 }
 
-int eblob_base_setup_data(struct eblob_base_ctl *ctl, int force)
+int eblob_base_setup_data(struct eblob_base_ctl *ctl)
 {
 	struct stat st;
 	int err;
@@ -95,9 +95,7 @@ int eblob_base_setup_data(struct eblob_base_ctl *ctl, int force)
 		goto err_out_exit;
 	}
 
-	if ((st.st_size && ((unsigned long long)st.st_size != ctl->data_ctl.size)) || force) {
-		ctl->data_ctl.size = st.st_size;
-	}
+	ctl->data_ctl.size = st.st_size;
 
 err_out_exit:
 	return err;
@@ -166,7 +164,7 @@ static int eblob_base_open_sorted(struct eblob_base_ctl *bctl, const char *dir_b
 		goto err_out_free;
 	}
 
-	err = eblob_base_setup_data(bctl, 0);
+	err = eblob_base_setup_data(bctl);
 	if (err)
 		goto err_out_close;
 
@@ -253,7 +251,7 @@ again:
 			goto err_out_close_data;
 		}
 
-		err = eblob_base_setup_data(ctl, 0);
+		err = eblob_base_setup_data(ctl);
 		if (err)
 			goto err_out_close_index;
 

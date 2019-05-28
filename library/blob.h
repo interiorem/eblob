@@ -387,7 +387,7 @@ inline static void eblob_iovec_get_bounds(struct eblob_iovec_bounds *bounds,
 void eblob_base_ctl_cleanup(struct eblob_base_ctl *ctl);
 int _eblob_base_ctl_cleanup(struct eblob_base_ctl *ctl);
 
-int eblob_base_setup_data(struct eblob_base_ctl *ctl, int force);
+int eblob_base_setup_data(struct eblob_base_ctl *ctl);
 
 int eblob_want_defrag(struct eblob_base_ctl *bctl);
 

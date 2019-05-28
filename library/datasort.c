@@ -1218,7 +1218,7 @@ static int datasort_swap_memory(struct datasort_ctl *ds_ctl)
 	sorted_bctl->index_ctl = index;
 
 	/* Setup new base */
-	if ((err = eblob_base_setup_data(sorted_bctl, 1)) != 0) {
+	if ((err = eblob_base_setup_data(sorted_bctl)) != 0) {
 		EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, -err, "defrag: eblob_base_setup_data: FAILED");
 		goto err_free_base;
 	}
