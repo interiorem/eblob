@@ -368,6 +368,7 @@ static struct datasort_chunk *datasort_add_chunk(struct datasort_cfg *dcfg, cons
 	chunk->fd = fd;
 	chunk->path = path;
 	chunk->already_sorted = 0;
+	chunk->base_view = 0;
 
 	EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO, "defrag: added new chunk: %s, fd: %d", path, fd);
 
@@ -405,7 +406,7 @@ static void datasort_destroy_chunk(struct datasort_cfg *dcfg, struct datasort_ch
 		if (unlink(chunk->path) == -1)
 			EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, errno, "defrag: unlink: %s", chunk->path);
 	}
-	if (chunk->fd >= 0) {
+	if (!chunk->base_view && chunk->fd >= 0) {
 		if (eblob_pagecache_hint(chunk->fd, EBLOB_FLAGS_HINT_DONTNEED))
 			EBLOB_WARNX(dcfg->log, EBLOB_LOG_ERROR, "defrag: eblob_pagecache_hint: %d", chunk->fd);
 		if (close(chunk->fd) == -1)
@@ -560,6 +561,71 @@ static int datasort_split_iterator_free(struct eblob_iterate_control *ictl __att
 	return 0;
 }
 
+/*
+ * Create a view over a blob and insert it in dcfg->unsorted_list
+ * Assume that blob has already sorted
+ */
+static int datasort_add_view_chunk(struct datasort_cfg *dcfg, struct eblob_base_ctl *bctl) {
+	assert(dcfg);
+	assert(bctl);
+
+	int err = 0;
+
+	EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO, "defrag: datasort_add_view_chunk: start, name: %s",
+			bctl->name);
+
+	struct datasort_chunk *chunk = calloc(1, sizeof(*chunk));
+	if (chunk == NULL) {
+		err = -errno;
+		EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, -err,
+			    "defrag: add_view_chunk: can't allocate memory for datasort_chunk");
+		return err;
+	}
+
+	eblob_base_wait_locked(bctl);
+
+	struct eblob_file_ctl *index_ctl = &bctl->index_ctl;
+	assert(index_ctl->fd > 0);
+
+	chunk->fd = bctl->data_ctl.fd;
+	chunk->already_sorted = 1;
+	chunk->base_view = 1;
+	chunk->offset = bctl->data_ctl.offset;
+	chunk->index_size = index_ctl->size / sizeof(struct eblob_disk_control);
+	chunk->count = chunk->index_size;
+	chunk->index = calloc(chunk->count, sizeof(struct eblob_disk_control));
+	if (chunk->index == NULL) {
+		err = -errno;
+		EBLOB_WARNX(dcfg->log, EBLOB_LOG_ERROR,
+			    "defrag: load_index: can't allocate memory for index of size %zd",
+			    chunk->count * sizeof(struct eblob_disk_control));
+		goto err_out;
+	}
+
+	err = __eblob_read_ll(index_ctl->fd, chunk->index, index_ctl->size, 0);
+	if (err) {
+		EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, -err, "defrag: datasort_add_view_chunk: can't read index");
+		goto err_out;
+	}
+
+	pthread_mutex_unlock(&bctl->lock);
+
+	// Add new chunk to the unsorted list
+	pthread_mutex_lock(&dcfg->lock);
+	list_add_tail(&chunk->list, &dcfg->unsorted_chunks);
+	pthread_mutex_unlock(&dcfg->lock);
+	EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO, "defrag: datasort_add_view_chunk: completed");
+	return 0;
+
+err_out:
+	pthread_mutex_unlock(&bctl->lock);
+	EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, -err, "defrag: failed to create view chunk");
+	if (chunk)
+		free(chunk->index);
+	free(chunk);
+	return err;
+}
+
 /* Run datasort_split_iterator on given base */
 static int datasort_split(struct datasort_cfg *dcfg)
 {
@@ -574,12 +640,25 @@ static int datasort_split(struct datasort_cfg *dcfg)
 
 	/* Init iterator config */
 	for (n = 0; n < dcfg->bctl_cnt; ++n) {
-		assert(dcfg->bctl[n] != NULL);
+		struct eblob_base_ctl *current_bctl = dcfg->bctl[n];
+		assert(current_bctl != NULL);
+
+		// If base is already sorted we don't need split it into chunks and sort it.
+		// Instead of that we can just iterate it over in the merge phase.
+		if ((dcfg->b->cfg.blob_flags & EBLOB_USE_VIEWS) && datasort_base_is_sorted(current_bctl)) {
+			err = datasort_add_view_chunk(dcfg, current_bctl);
+			if (err != 0) {
+				EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, -err,
+					    "defrag: datasort_add_view_chunk: FAILED");
+				goto err;
+			}
+			continue;
+		}
 
 		memset(&ictl, 0, sizeof(ictl));
 		ictl.priv = dcfg;
 		ictl.b = dcfg->b;
-		ictl.base = dcfg->bctl[n];
+		ictl.base = current_bctl;
 		ictl.log = dcfg->b->cfg.log;
 		ictl.flags = EBLOB_ITERATE_FLAGS_ALL | EBLOB_ITERATE_FLAGS_READONLY;
 		ictl.iterator_cb.iterator = datasort_split_iterator;
@@ -816,6 +895,12 @@ static struct datasort_chunk *datasort_merge_get_smallest(struct datasort_cfg *d
 
 	list_for_each_entry(chunk, &dcfg->sorted_chunks, list) {
 		assert(chunk->merge_count <= chunk->count);
+
+		// Skip removed records
+		while (chunk->merge_count != chunk->count &&
+		       (chunk->index[chunk->merge_count].flags & BLOB_DISK_CTL_REMOVE)) {
+			++chunk->merge_count;
+		}
 
 		if (chunk->merge_count >= chunk->count)
 			continue;

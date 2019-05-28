@@ -37,6 +37,10 @@
 /* Suffix for flag-file that is created after data is sorted */
 #define EBLOB_DATASORT_SORTED_MARK_SUFFIX	".data_is_sorted"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * One chunk of blob.
  */
@@ -53,10 +57,15 @@ struct datasort_chunk {
 	char				*path;
 	/* Array of dc's for sorting and merging */
 	struct eblob_disk_control	*index;
-	/* Currently allocated space for index */
+	/* Number of reserved records including already used */
 	uint64_t			index_size;
 	/* Set to 1 if chunk came from sorted bctl */
 	uint8_t				already_sorted;
+	/* Set to 1 if chunk is just a view from base ctl
+	 * View can be created only from sorted base ctl. Instead it doesn't make a sense
+	 * We need this field in destroying to distinguish cases when we own and don't own a file descriptor fd
+	 */
+	uint8_t 		 	base_view;
 	/* Chunk maybe in sorted or unsorted list */
 	struct list_head		list;
 };
@@ -230,5 +239,9 @@ static inline int eblob_binlog_append(struct eblob_binlog_cfg *bcfg,
 	list_add_tail(&entry->list, &bcfg->removed_keys);
 	return 0;
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __EBLOB_DATASORT_H */

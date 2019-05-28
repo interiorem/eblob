@@ -309,6 +309,13 @@ static inline void eblob_convert_disk_control(struct eblob_disk_control *ctl)
  */
 #define EBLOB_AUTO_INDEXSORT			(1<<11)
 
+/*
+ * Enable use of views over bases while sorting a blob instead of
+ * splitting on chunks.
+ */
+#define EBLOB_USE_VIEWS			(1<<12)
+
+
 struct eblob_config {
 	/* blob flags above */
 	unsigned int		blob_flags;
@@ -847,6 +854,7 @@ static inline const char *eblob_dump_blob_flags(unsigned int flags) {
 		{ EBLOB_SCHEDULED_DATASORT,		"scheduled_datasort"},
 		{ EBLOB_DISABLE_THREADS,		"disabled_threads"},
 		{ EBLOB_AUTO_INDEXSORT,			"auto_indexsort"},
+		{ EBLOB_USE_VIEWS,			"use_views"},
 	};
 
 	eblob_dump_flags_raw(buffer, sizeof(buffer), flags, infos, sizeof(infos) / sizeof(infos[0]));
