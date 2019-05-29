@@ -50,6 +50,10 @@ void eblob_config_test_wrapper::reset_dirs() {
 	config.chunks_dir = const_cast<char*>(data_dir_.c_str());
 }
 
+std::string eblob_config_test_wrapper::base_dir() const {
+	return data_dir_;
+}
+
 item_t::item_t(uint64_t key_, const eblob_key &hashed_key_, const std::vector<char> &value_)
 : key(key_)
 , value(value_) {

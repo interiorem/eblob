@@ -417,3 +417,108 @@ void run_remove_bases(const eblob_config &config) {
 	BOOST_REQUIRE_EQUAL(iterate(wrapper, priv), 0);
 	BOOST_REQUIRE_EQUAL(priv.number_checked, TOTAL_RECORDS - RECORDS_TO_REMOVE);
 }
+
+/*
+ * Trigger defrag & compact with and without chunks_dir and check that it changes internal
+ * state for next defrag. This test doesn't execute defrag.
+ */
+BOOST_AUTO_TEST_CASE(test_defrag_trigger) {
+	eblob_config_test_wrapper config_wrapper;
+	config_wrapper.config.blob_flags = EBLOB_L2HASH | EBLOB_DISABLE_THREADS;
+	config_wrapper.config.chunks_dir = nullptr;
+
+	eblob_wrapper wrapper(config_wrapper.config);
+
+	auto backend = wrapper.get();
+
+	BOOST_REQUIRE(backend->defrag_chunks_dir == nullptr);
+	BOOST_REQUIRE_EQUAL(backend->want_defrag, EBLOB_DEFRAG_STATE_NOT_STARTED);
+
+	const std::string defrag_dir = config_wrapper.base_dir() + "/defrag_dir";
+
+	// remove this flag to allow start_defrag to trigger background defrag
+	backend->cfg.blob_flags &= ~EBLOB_DISABLE_THREADS;
+
+	// check that triggered data sort sets defrag_dir as chunks_dir for next defrag
+	BOOST_REQUIRE_EQUAL(eblob_start_defrag_in_dir(backend, EBLOB_DEFRAG_STATE_DATA_SORT, defrag_dir.c_str()), 0);
+	// check that defrag_dir was set into internal state
+	BOOST_REQUIRE_EQUAL(std::string(backend->defrag_chunks_dir), defrag_dir);
+	// check that data_sort was triggered
+	BOOST_REQUIRE_EQUAL(backend->want_defrag, EBLOB_DEFRAG_STATE_DATA_SORT);
+
+	// stop defrag
+	BOOST_REQUIRE_EQUAL(eblob_stop_defrag(backend), 0);
+	// check that chunks_dir was reset
+	BOOST_REQUIRE(backend->defrag_chunks_dir == nullptr);
+	// check that data_sort was stopped
+	BOOST_REQUIRE_EQUAL(backend->want_defrag, EBLOB_DEFRAG_STATE_NOT_STARTED);
+
+
+	// check that triggered compact sets defrag_dir as chunks_dir for next defrag
+	BOOST_REQUIRE_EQUAL(eblob_start_defrag_in_dir(backend, EBLOB_DEFRAG_STATE_DATA_COMPACT, defrag_dir.c_str()), 0);
+	// check that defrag_dir was set into internal state
+	BOOST_REQUIRE_EQUAL(std::string(backend->defrag_chunks_dir), defrag_dir);
+	// check that data_compact was triggered
+	BOOST_REQUIRE_EQUAL(backend->want_defrag, EBLOB_DEFRAG_STATE_DATA_COMPACT);
+
+	// stop defrag
+	BOOST_REQUIRE_EQUAL(eblob_stop_defrag(backend), 0);
+	// check that chunks_dir was reset
+	BOOST_REQUIRE(backend->defrag_chunks_dir == nullptr);
+	// check that data_sort was stopped
+	BOOST_REQUIRE_EQUAL(backend->want_defrag, EBLOB_DEFRAG_STATE_NOT_STARTED);
+
+
+	// check that triggered data sort sets nullptr as chunks_dir for next defrag
+	BOOST_REQUIRE_EQUAL(eblob_start_defrag_in_dir(backend, EBLOB_DEFRAG_STATE_DATA_SORT, nullptr), 0);
+	// check that chunks_dir remain unset
+	BOOST_REQUIRE(backend->defrag_chunks_dir == nullptr);
+	// check that data_sort was triggered
+	BOOST_REQUIRE_EQUAL(backend->want_defrag, EBLOB_DEFRAG_STATE_DATA_SORT);
+
+	// stop defrag
+	BOOST_REQUIRE_EQUAL(eblob_stop_defrag(backend), 0);
+	// check that chunks_dir was reset
+	BOOST_REQUIRE(backend->defrag_chunks_dir == nullptr);
+	// check that data_sort was stopped
+	BOOST_REQUIRE_EQUAL(backend->want_defrag, EBLOB_DEFRAG_STATE_NOT_STARTED);
+}
+
+/*
+ * Run defrag in specified chunks dir, wait its completion and check status
+ */
+BOOST_AUTO_TEST_CASE(test_defrag_in_dir) {
+	eblob_config_test_wrapper config_wrapper;
+	config_wrapper.config.blob_flags = EBLOB_L2HASH;
+	config_wrapper.config.chunks_dir = nullptr;
+	config_wrapper.config.records_in_blob = 10;
+	config_wrapper.config.blob_size = 1ULL << 30;
+
+	std::string config_chunks_dir = config_wrapper.base_dir() + "/config_chunks_dir";
+	BOOST_REQUIRE_EQUAL(mkdir(config_chunks_dir.c_str(), S_IREAD), 0);
+	config_wrapper.config.chunks_dir = &config_chunks_dir.front();
+
+	eblob_wrapper wrapper(config_wrapper.config);
+
+	auto backend = wrapper.get();
+
+	// fill up 2 blobs
+	for (size_t i = 0; i < config_wrapper.config.records_in_blob * 2; ++i) {
+		BOOST_REQUIRE_EQUAL(eblob_write_hashed(backend, &i, sizeof(i), &i, 0, sizeof(i), 0), 0);
+	}
+
+	// create defrag_dir directory
+	const std::string defrag_dir = config_wrapper.base_dir() + "/defrag_dir";
+	BOOST_REQUIRE_EQUAL(mkdir(defrag_dir.c_str(), S_IRWXU), 0);
+
+	// trigger data_sort in defrag_dir
+	BOOST_REQUIRE_EQUAL(eblob_start_defrag_in_dir(backend, EBLOB_DEFRAG_STATE_DATA_SORT, defrag_dir.c_str()), 0);
+
+	// wait defrag completion
+	while (eblob_defrag_status(backend) == EBLOB_DEFRAG_STATE_DATA_SORT) {
+		usleep(1);
+	}
+
+	// check that defrag succeeded
+	BOOST_REQUIRE_EQUAL(eblob_stat_get(backend->stat, EBLOB_GST_DATASORT_COMPLETION_STATUS), 0);
+}

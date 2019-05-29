@@ -29,7 +29,7 @@ add_executable(eblob_defrag_test unit/defrag.cpp unit/eblob_wrapper.cpp)
 target_link_libraries(eblob_defrag_test eblob ${Boost_LIBRARIES})
 add_custom_target(test_defrag
                   COMMAND "${CMAKE_CURRENT_BINARY_DIR}/eblob_defrag_test"
-                  DEPENDS ${TEST_DEPS} eblob_defrag_test)
+                  DEPENDS ${TESTS_DEPS} eblob_defrag_test)
 
 set(TESTS_LIST
     eblob_stress

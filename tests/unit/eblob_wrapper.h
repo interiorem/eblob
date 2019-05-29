@@ -24,6 +24,9 @@ public:
 
 	void reset_dirs();
 
+	// base directory where backend should store everything
+	std::string base_dir() const;
+
 private:
 	void cleanup_files();
 
