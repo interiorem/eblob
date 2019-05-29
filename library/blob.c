@@ -1983,16 +1983,16 @@ err_out_exit:
 
 
 /**
- * eblob_write_prepare_disk() - allocates space for new record
+ * eblob_write_prepare_disk_nolock() - allocates space for new record
  * It allocates new bases, commits headers and manages overwrites/appends.
+ * NB! Caller should hold "backend" lock.
  */
-static int eblob_write_prepare_disk(struct eblob_backend *b, struct eblob_key *key,
+static int eblob_write_prepare_disk_nolock(struct eblob_backend *b, struct eblob_key *key,
 		struct eblob_write_control *wc, uint64_t prepare_disk_size,
 		enum eblob_copy_flavour copy, uint64_t copy_offset, struct eblob_ram_control *old,
 		size_t defrag_generation)
 {
 	FORMATTED(HANDY_TIMER_SCOPE, ("eblob.%u.disk.write.prepare.disk", b->cfg.stat_id));
-
 	ssize_t err = 0;
 	uint64_t size;
 	struct eblob_ram_control upd_old;
@@ -2001,8 +2001,6 @@ static int eblob_write_prepare_disk(struct eblob_backend *b, struct eblob_key *k
 			"blob: %s: eblob_write_prepare_disk: start: "
 			"size: %" PRIu64 ", offset: %" PRIu64 ", prepare: %" PRIu64 "\n",
 			eblob_dump_id(key->id), wc->size, wc->offset, prepare_disk_size);
-
-	pthread_mutex_lock(&b->lock);
 
 	if (defrag_generation != b->defrag_generation) {
 		int disk;
@@ -2028,10 +2026,73 @@ static int eblob_write_prepare_disk(struct eblob_backend *b, struct eblob_key *k
 			copy, copy_offset, old);
 
 err_out_exit:
-	pthread_mutex_unlock(&b->lock);
 	eblob_dump_wc(b, key, wc, "eblob_write_prepare_disk", err);
 	return err;
 }
+
+
+/**
+ * eblob_write_prepare_disk() - allocates space for new record
+ * It allocates new bases, commits headers and manages overwrites/appends.
+ * NB! Function takes "backend" lock.
+ */
+static int eblob_write_prepare_disk(struct eblob_backend *b, struct eblob_key *key,
+		struct eblob_write_control *wc, uint64_t prepare_disk_size,
+		enum eblob_copy_flavour copy, uint64_t copy_offset, struct eblob_ram_control *old,
+		size_t defrag_generation)
+{
+	pthread_mutex_lock(&b->lock);
+	int err = eblob_write_prepare_disk_nolock(b, key, wc, prepare_disk_size,
+	                                          copy, copy_offset, old, defrag_generation);
+	pthread_mutex_unlock(&b->lock);
+	return err;
+}
+
+
+/**
+ * eblob_write_prepare_inplace() - prepare space in existing base. Non-blocking.
+ */
+static int eblob_write_prepare_inplace(struct eblob_backend *b, struct eblob_key *key,
+		uint64_t flags, struct eblob_write_control *wc) {
+	// We've got a key which will be overwritten, make sure it has valid flags.
+	// We overwrite flags to what user has provided dropping all existing on-disk flags since
+	// given key will be fully overwritten and we do not care about its old content anymore.
+	// The same logic is performed in @eblob_write_prepare_disk(), but it also allocates new space.
+
+	int err = 0;
+	uint64_t new_flags = eblob_validate_ctl_flags(b, flags);
+	new_flags |= BLOB_DISK_CTL_UNCOMMITTED;
+
+	if (wc->flags == new_flags) {
+		goto out_stat;
+	}
+
+	if (!(wc->flags & BLOB_DISK_CTL_UNCOMMITTED)) {
+		// update stats if the found key is committed, because now it becomes uncommitted.
+		eblob_stat_inc(wc->bctl->stat, EBLOB_LST_RECORDS_UNCOMMITTED);
+		eblob_stat_add(wc->bctl->stat, EBLOB_LST_UNCOMMITTED_SIZE,
+		               wc->total_size + sizeof(struct eblob_disk_control));
+
+		eblob_stat_inc(b->stat_summary, EBLOB_LST_RECORDS_UNCOMMITTED);
+		eblob_stat_add(b->stat_summary, EBLOB_LST_UNCOMMITTED_SIZE,
+		               wc->total_size + sizeof(struct eblob_disk_control));
+	}
+
+	wc->flags = new_flags;
+	err = eblob_commit_disk(b, key, wc, 0);
+	if (err)
+		goto out_exit;
+
+	err = eblob_commit_ram(b, key, wc);
+	if (err)
+		goto out_exit;
+
+out_stat:
+	eblob_stat_inc(b->stat, EBLOB_GST_PREPARE_REUSED);
+out_exit:
+	return err;
+}
+
 
 /**
  * eblob_write_prepare() - prepare phase reserves space in blob file.
@@ -2049,6 +2110,7 @@ int eblob_write_prepare(struct eblob_backend *b, struct eblob_key *key,
 			"key: %s, size: %" PRIu64 ", flags: %s",
 			eblob_dump_id(key->id), size, eblob_dump_dctl_flags(flags));
 
+
 	/* Sanity */
 	if (b == NULL || key == NULL) {
 		err = -EINVAL;
@@ -2061,60 +2123,29 @@ int eblob_write_prepare(struct eblob_backend *b, struct eblob_key *key,
 	 */
 	pthread_mutex_lock(&b->lock);
 	defrag_generation = b->defrag_generation;
-
 	err = eblob_fill_write_control_from_ram(b, key, &wc, 1, &old);
-	pthread_mutex_unlock(&b->lock);
-	if (err && err != -ENOENT && err != -E2BIG)
+	if (err && err != -ENOENT && err != -E2BIG) {
+		pthread_mutex_unlock(&b->lock);
 		goto err_out_exit;
+	}
 
-	if (err == 0 && (wc.total_size >= eblob_calculate_size(b, key, 0, size))) {
-		uint64_t new_flags;
-
-		/*
-		 * We've found a key which will be overwritten,
-		 * make sure it has valid flags.
-		 *
-		 * We overwrite flags to what user has provided
-		 * dropping all existing on-disk flags since
-		 * given key will be fully overwritten and
-		 * we do not care about its old content anymore.
-		 *
-		 * The same logic is performed in @eblob_write_prepare_disk(),
-		 * but it also allocates new space.
-		 */
-		new_flags = eblob_validate_ctl_flags(b, flags);
-		new_flags |= BLOB_DISK_CTL_UNCOMMITTED;
-
-		if (wc.flags != new_flags) {
-			if (!(wc.flags & BLOB_DISK_CTL_UNCOMMITTED)) {
-				// update stats if the found key is committed, because now it becomes uncommitted.
-				eblob_stat_inc(wc.bctl->stat, EBLOB_LST_RECORDS_UNCOMMITTED);
-				eblob_stat_add(wc.bctl->stat, EBLOB_LST_UNCOMMITTED_SIZE,
-				               wc.total_size + sizeof(struct eblob_disk_control));
-
-				eblob_stat_inc(b->stat_summary, EBLOB_LST_RECORDS_UNCOMMITTED);
-				eblob_stat_add(b->stat_summary, EBLOB_LST_UNCOMMITTED_SIZE,
-				               wc.total_size + sizeof(struct eblob_disk_control));
-			}
-
-			wc.flags = new_flags;
-
-			err = eblob_commit_disk(b, key, &wc, 0);
-			if (err)
-				goto err_out_cleanup_wc;
-
-			err = eblob_commit_ram(b, key, &wc);
-			if (err)
-				goto err_out_cleanup_wc;
-		}
-
-		eblob_stat_inc(b->stat, EBLOB_GST_PREPARE_REUSED);
-		goto err_out_cleanup_wc;
+	// Note: here we have 4 cases:
+	// 1) We have not found a key. => hold backend lock, reserve space in the new base
+	// 2) We've found a key in existing bases.
+	//   2.a) Corresponding base has no enough space. => hold backend lock, reserve in the new base
+	//   2.b) Corresponding base has closed for writing (binlog enabled) => release backend lock,
+	//                                                                      reserve in the new base
+	//   2.c) Otherwise, reserve space in the existing base.
+	if (err == 0 && (wc.total_size >= eblob_calculate_size(b, key, 0, size)) &&
+	    !eblob_binlog_enabled(&wc.bctl->binlog)) {
+		pthread_mutex_unlock(&b->lock);
+		err = eblob_write_prepare_inplace(b, key, flags, &wc);
 	} else {
 		wc.flags = eblob_validate_ctl_flags(b, flags);
 		wc.flags |= BLOB_DISK_CTL_UNCOMMITTED;
-
-		err = eblob_write_prepare_disk(b, key, &wc, size, EBLOB_COPY_RECORD, 0, err == -ENOENT ? NULL : &old, defrag_generation);
+		err = eblob_write_prepare_disk_nolock(b, key, &wc, size, EBLOB_COPY_RECORD, 0,
+		                                      err == -ENOENT ? NULL : &old, defrag_generation);
+		pthread_mutex_unlock(&b->lock);
 		if (err)
 			goto err_out_cleanup_wc;
 
