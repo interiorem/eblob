@@ -1,13 +1,11 @@
 #include "eblob_wrapper.h"
 
 #include <boost/filesystem.hpp>
-
-#include <library/blob.h>
-#include <library/crypto/sha512.h>
-
-#include <eblob/eblob.hpp>
-
 #include <vector>
+
+#include "eblob/eblob.hpp"
+#include "library/blob.h"
+#include "library/crypto/sha512.h"
 
 
 eblob_config_test_wrapper::eblob_config_test_wrapper(bool cleanup_files)

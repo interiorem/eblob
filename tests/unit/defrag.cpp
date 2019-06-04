@@ -5,22 +5,20 @@
 #include <boost/test/unit_test.hpp>
 #include <boost/filesystem.hpp>
 
-#include "eblob_wrapper.h"
+#include <iostream>
+#include <functional>
+#include <random>
+#include <utility>
+#include <vector>
 
+#include <err.h>
+#include <sysexits.h>
+
+#include "eblob/eblob.hpp"
+#include "eblob_wrapper.h"
 #include "library/blob.h"
 #include "library/datasort.h"
 #include "library/list.h"
-
-#include "eblob/eblob.hpp"
-
-#include <vector>
-#include <utility>
-#include <random>
-#include <iostream>
-#include <functional>
-
-#include <sysexits.h>
-#include <err.h>
 
 
 eblob_config_test_wrapper initialize_eblob_config_for_defrag() {

@@ -2,14 +2,13 @@
 
 #include <boost/filesystem.hpp>
 
-#include <eblob/eblob.hpp>
-
-#include <library/blob.h>
-#include <library/crypto/sha512.h>
-
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "eblob/eblob.hpp"
+#include "library/blob.h"
+#include "library/crypto/sha512.h"
 
 class eblob_config_test_wrapper {
 public:
