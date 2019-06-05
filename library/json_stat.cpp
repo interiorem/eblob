@@ -79,6 +79,11 @@ static void eblob_stat_config_json(struct eblob_backend *b, rapidjson::Value &st
 	stat.AddMember("blob_size_limit", b->cfg.blob_size_limit, allocator);
 	stat.AddMember("defrag_time", b->cfg.defrag_time, allocator);
 	stat.AddMember("defrag_splay", b->cfg.defrag_splay, allocator);
+	stat.AddMember("periodic_timeout", b->cfg.periodic_timeout, allocator);
+	stat.AddMember("stat_id", b->cfg.stat_id, allocator);
+	if (b->cfg.chunks_dir != nullptr) {
+		stat.AddMember("chunks_dir", rapidjson::StringRef(b->cfg.chunks_dir), allocator);
+	}
 	stat.AddMember("bg_ioprio_class", b->cfg.bg_ioprio_class, allocator);
 	stat.AddMember("bg_ioprio_data", b->cfg.bg_ioprio_data, allocator);
 	stat.AddMember("single_pass_file_size_threshold", b->cfg.single_pass_file_size_threshold, allocator);
