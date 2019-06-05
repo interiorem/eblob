@@ -433,8 +433,19 @@ struct eblob_config {
 	int			bg_ioprio_class;  // one of IOPRIO_CLASS_*
 	int			bg_ioprio_data; // priority level within @bg_ioprio_class
 
+	/*
+	 * When we have pretty large files we don't want to make external merge sort.
+	 * Instead we just iterate over sorted indexes and write resulting blob in order
+	 * That threshold should be ~ disk_seek_time * avg_linear_disk_speed / 2
+	 * division by 2 is here because we can do 2 reads and 2 writes best (total 4 passes) via mergesort
+	 * and 1 read and 1 write via single pass sort. So if time consumed by seeks is less than 2 linear accesses
+	 * we improve our total speed.
+	 * For modern HDD this should be about 512 KiB
+	 */
+	uint64_t                single_pass_file_size_threshold;
+
 	/* for future use */
-	uint64_t		__pad_64[8];
+	uint64_t		__pad_64[7];
 	int			__pad_int[3];
 	char			__pad_char[8];
 	void			*__pad_voidp[7];
@@ -736,6 +747,9 @@ enum eblob_stat_global_flavour {
 	EBLOB_GST_INDEX_READS,
 	EBLOB_GST_DATASORT_COMPLETION_TIME,
 	EBLOB_GST_DATASORT_COMPLETION_STATUS,
+	EBLOB_GST_DATASORT_VIEW_USED_NUMBER,
+	EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER,
+	EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER,
 	EBLOB_GST_MAX,
 };
 

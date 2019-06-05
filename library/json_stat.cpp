@@ -81,6 +81,7 @@ static void eblob_stat_config_json(struct eblob_backend *b, rapidjson::Value &st
 	stat.AddMember("defrag_splay", b->cfg.defrag_splay, allocator);
 	stat.AddMember("bg_ioprio_class", b->cfg.bg_ioprio_class, allocator);
 	stat.AddMember("bg_ioprio_data", b->cfg.bg_ioprio_data, allocator);
+	stat.AddMember("single_pass_file_size_threshold", b->cfg.single_pass_file_size_threshold, allocator);
 	auto ioprio_class = ioprio_class_string(b->cfg.bg_ioprio_class);
 	stat.AddMember("string_bg_ioprio_class", rapidjson::Value(ioprio_class, allocator), allocator);
 }

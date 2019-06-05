@@ -156,6 +156,9 @@ int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir)
 	pthread_mutex_lock(&b->defrag_lock);
 
 	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_START_TIME, time(NULL));
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER, 0);
 
 	/* Count approximate number of bases */
 	list_for_each_entry(bctl, &b->bases, base_entry)

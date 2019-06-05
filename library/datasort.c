@@ -45,6 +45,11 @@
 #include <string.h>
 #include <unistd.h>
 
+enum view_mode {
+	VIEW_MODE_NONE = 0,
+	VIEW_MODE_SORTED,
+	VIEW_MODE_SINGLE_PASS
+};
 
 /**
  * datasort_reallocf() - reallocates array @datap of @sizep elements with size
@@ -370,7 +375,7 @@ static struct datasort_chunk *datasort_add_chunk(struct datasort_cfg *dcfg, cons
 	}
 	chunk->fd = fd;
 	chunk->path = path;
-	chunk->already_sorted = 0;
+	chunk->need_sort = 1;
 	chunk->base_view = 0;
 
 	EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO, "defrag: added new chunk: %s, fd: %d", path, fd);
@@ -490,7 +495,9 @@ static int datasort_split_iterator(struct eblob_disk_control *dc,
 			goto err;
 		}
 		/* Mark chunk as already sorted if it came from sorted bctl */
-		c->already_sorted = (datasort_base_is_sorted(local->bctl) == 1);
+		if (datasort_base_is_sorted(local->bctl) == 1) {
+			c->need_sort = 0;
+		}
 		/* Update pointer for current chunk */
 		local->current = c;
 
@@ -570,7 +577,7 @@ static int datasort_split_iterator_free(struct eblob_iterate_control *ictl __att
 
 /*
  * Create a view over a blob and insert it in dcfg->unsorted_list
- * Assume that blob has already sorted
+ * Assume that blob has already sorted or we use single pass sorting.
  */
 static int datasort_add_view_chunk(struct datasort_ctl *ds_ctl, struct eblob_base_ctl *bctl) {
 	assert(ds_ctl);
@@ -599,7 +606,8 @@ static int datasort_add_view_chunk(struct datasort_ctl *ds_ctl, struct eblob_bas
 	assert(index_ctl->fd > 0);
 
 	chunk->fd = bctl->data_ctl.fd;
-	chunk->already_sorted = 1;
+	// This is also valid for single pass sorting, as we don't require sorting
+	chunk->need_sort = 0;
 	chunk->base_view = 1;
 	chunk->offset = bctl->data_ctl.offset;
 	chunk->index_size = index_ctl->size / sizeof(struct eblob_disk_control);
@@ -621,6 +629,11 @@ static int datasort_add_view_chunk(struct datasort_ctl *ds_ctl, struct eblob_bas
 
 	pthread_mutex_unlock(&bctl->lock);
 
+	if (!index_ctl->sorted) {
+		EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO,"defrag: index is not sorted for view: sorting");
+		qsort(chunk->index, chunk->index_size, sizeof(struct eblob_disk_control), eblob_disk_control_sort);
+	}
+
 	// Add new chunk to the unsorted list
 	pthread_mutex_lock(&ds_ctl->lock);
 	list_add_tail(&chunk->list, &ds_ctl->unsorted_chunks);
@@ -635,6 +648,58 @@ err_out:
 		free(chunk->index);
 	free(chunk);
 	return err;
+}
+
+static int datasort_should_use_single_pass_sorting(struct eblob_base_ctl *bctl) {
+	const uint64_t threshold = bctl->back->cfg.single_pass_file_size_threshold;
+	if (threshold == 0) {
+		return 0;
+	}
+	const int64_t base_size = eblob_stat_get(bctl->stat, EBLOB_LST_BASE_SIZE);
+	const int64_t removed_size = eblob_stat_get(bctl->stat, EBLOB_LST_REMOVED_SIZE);
+	const int64_t alive_size = base_size - removed_size;
+
+	const int64_t total_cnt = eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_TOTAL);
+	const int64_t removed_cnt = eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_REMOVED);
+	const int64_t alive_cnt = total_cnt - removed_cnt;
+
+	if (alive_cnt == 0) {
+		return 1;
+	}
+	const uint64_t avg_size = (uint64_t)alive_size / alive_cnt;
+	return avg_size > threshold;
+}
+
+/**
+ * datasort_get_view_mode() - checks if need to use view instead of splitting blob to chunks
+ *
+ * We create a view in the following cases:
+ * 1) If base is already sorted we don't need split it into chunks and sort it.
+ * Instead of that we can just iterate it over in the merge phase.
+ * 2) If we decided to do single pass sorting
+ */
+static enum view_mode datasort_get_view_mode(struct datasort_ctl *ds_ctl, struct eblob_base_ctl *current_bctl) {
+	if (!(ds_ctl->cfg->b->cfg.blob_flags & EBLOB_USE_VIEWS)) {
+		return VIEW_MODE_NONE;
+	}
+	if (datasort_base_is_sorted(current_bctl)) {
+		EBLOB_WARNX(ds_ctl->cfg->log, EBLOB_LOG_INFO, "defrag: will use view for sorted blob");
+		return VIEW_MODE_SORTED;
+	}
+	if (datasort_should_use_single_pass_sorting(current_bctl)) {
+		EBLOB_WARNX(ds_ctl->cfg->log, EBLOB_LOG_INFO,"defrag: will use view for single pass sort");
+		return VIEW_MODE_SINGLE_PASS;
+	}
+	return VIEW_MODE_NONE;
+}
+
+static void datasort_increase_view_stat(struct datasort_cfg *dcfg, enum view_mode mode) {
+	eblob_stat_inc(dcfg->b->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER);
+	if(mode == VIEW_MODE_SORTED) {
+		eblob_stat_inc(dcfg->b->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER);
+	} else if(mode == VIEW_MODE_SINGLE_PASS) {
+		eblob_stat_inc(dcfg->b->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER);
+	}
 }
 
 /* Run datasort_split_iterator on given base */
@@ -659,15 +724,15 @@ static int datasort_split(struct datasort_ctl *ds_ctl)
 		struct eblob_base_ctl *current_bctl = dcfg->bctl[n];
 		assert(current_bctl != NULL);
 
-		// If base is already sorted we don't need split it into chunks and sort it.
-		// Instead of that we can just iterate it over in the merge phase.
-		if ((dcfg->b->cfg.blob_flags & EBLOB_USE_VIEWS) && datasort_base_is_sorted(current_bctl)) {
+		enum view_mode view_mode = datasort_get_view_mode(ds_ctl, current_bctl);
+		if (view_mode) {
 			err = datasort_add_view_chunk(ds_ctl, current_bctl);
 			if (err != 0) {
 				EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, -err,
 					    "defrag: datasort_add_view_chunk: FAILED");
 				goto err;
 			}
+			datasort_increase_view_stat(dcfg, view_mode);
 			continue;
 		}
 
@@ -865,11 +930,14 @@ static int datasort_sort(struct datasort_ctl *ds_ctl)
 
 	/*
 	 * If chunk came from sorted base then it's by definition sorted so we
-	 * should simply moe it to sorted list
+	 * should simply move it to sorted list.
+	 * Also if we use single-pass sorting we don't need to sort it,
+	 * we will just iterate through sorted index
 	 */
-	list_for_each_entry_safe(chunk, tmp, &ds_ctl->unsorted_chunks, list)
-		if (chunk->already_sorted == 1)
+	list_for_each_entry_safe(chunk, tmp, &ds_ctl->unsorted_chunks, list) {
+		if (chunk->need_sort == 0)
 			list_move(&chunk->list, &ds_ctl->sorted_chunks);
+	}
 
 	/* If no chunks left in unsorted list we should skip sort stage */
 	if (list_empty(&ds_ctl->unsorted_chunks)) {

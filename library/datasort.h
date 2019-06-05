@@ -59,10 +59,12 @@ struct datasort_chunk {
 	struct eblob_disk_control	*index;
 	/* Number of reserved records including already used */
 	uint64_t			index_size;
-	/* Set to 1 if chunk came from sorted bctl */
-	uint8_t				already_sorted;
+	/* Set to 0 if chunk should not be sorted during sort phase
+	 * e.g. it came from sorted bctl or we are using single-pass sorting
+	 */
+	uint8_t				need_sort;
 	/* Set to 1 if chunk is just a view from base ctl
-	 * View can be created only from sorted base ctl. Instead it doesn't make a sense
+	 * View can be created from sorted base ctl or when we use single-pass sorting.
 	 * We need this field in destroying to distinguish cases when we own and don't own a file descriptor fd
 	 */
 	uint8_t 		 	base_view;

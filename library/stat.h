@@ -110,6 +110,21 @@ static const struct eblob_stat_entry eblob_stat_default_global[] = {
 		{0}
 	},
 	{
+		"datasort_view_used_number",
+		EBLOB_GST_DATASORT_VIEW_USED_NUMBER,
+		{0}
+	},
+	{
+		"datasort_sorted_view_used_number",
+		EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER,
+		{0}
+	},
+	{
+		"datasort_single_pass_view_used_number",
+		EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER,
+		{0}
+	},
+	{
 		"MAX",
 		EBLOB_GST_MAX,
 		{0}
