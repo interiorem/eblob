@@ -854,6 +854,10 @@ int eblob_generate_sorted_index(struct eblob_backend *b, struct eblob_base_ctl *
 	bctl->index_ctl.sorted = 1;
 	b->defrag_generation += 1;
 
+	if (b->cfg.blob_flags & EBLOB_AUTO_INDEXSORT) {
+		list_del_init(&bctl->closed_unsorted_base_entry);
+	}
+
 	/* Unlock */
 	pthread_rwlock_unlock(&b->hash.root_lock);
 	pthread_mutex_unlock(&bctl->lock);

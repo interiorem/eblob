@@ -362,6 +362,7 @@ struct eblob_base_ctl *eblob_base_ctl_new(struct eblob_backend *b, int index,
 	ctl->back = b;
 	ctl->index = index;
 	ctl->index_ctl.fd = -1;
+	INIT_LIST_HEAD(&ctl->closed_unsorted_base_entry);
 
 	memcpy(ctl->name, name, name_len);
 	ctl->name[name_len] = '\0';
@@ -503,6 +504,22 @@ void eblob_bases_cleanup(struct eblob_backend *b)
 		free(ctl);
 	}
 }
+
+
+/**
+ * eblob_extract_base_ctl() - extract a base from bases list and closed unsorted bases list in backend object
+ * NB! Caller should hold backend lock
+ */
+int eblob_extract_base_ctl(struct eblob_base_ctl *bctl) {
+	if (bctl == NULL) {
+		return -EINVAL;
+	}
+
+	__list_del(bctl->closed_unsorted_base_entry.prev, bctl->closed_unsorted_base_entry.next);
+	__list_del(bctl->base_entry.prev, bctl->base_entry.next);
+	return 0;
+}
+
 
 static int eblob_scan_base(struct eblob_backend *b)
 {

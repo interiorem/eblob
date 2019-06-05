@@ -1769,7 +1769,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 			goto err_out_exit;
 
 		if (!ctl->index_ctl.sorted)
-			datasort_force_sort(b);
+			datasort_plan_base_sort(b, ctl);
 
 		ctl = list_last_entry(&b->bases, struct eblob_base_ctl, base_entry);
 	}
@@ -3369,6 +3369,8 @@ struct eblob_backend *eblob_init(struct eblob_config *c)
 
 	INIT_LIST_HEAD(&b->bases);
 	b->max_index = -1;
+
+	INIT_LIST_HEAD(&b->closed_unsorted_bases);
 
 	err = eblob_l2hash_init(&b->l2hash);
 	if (err) {

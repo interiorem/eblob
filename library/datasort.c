@@ -111,25 +111,25 @@ static int datasort_chunk_get_path(struct datasort_ctl *ds_ctl, struct eblob_bas
 	return 0;
 }
 
+
 /**
- * datasort_force_sort() - kick in defragmentation.
+ * datasort_plan_base_sort() - enqueue bctl in the next defrag queue.
+ * NB! Caller should hold backend lock.
  */
-int datasort_force_sort(struct eblob_backend *b)
-{
-	if (b == NULL)
+int datasort_plan_base_sort(struct eblob_backend *b, struct eblob_base_ctl *bctl) {
+	if (b == NULL || bctl == NULL)
 		return -EINVAL;
 
-	eblob_log(b->cfg.log, EBLOB_LOG_INFO, "eblob: %s: scheduling sorting: datasort: %d, indexsort: %d\n",
-			__func__, (b->cfg.blob_flags & EBLOB_AUTO_DATASORT), (b->cfg.blob_flags & EBLOB_AUTO_INDEXSORT));
+	if (!(b->cfg.blob_flags & EBLOB_AUTO_INDEXSORT) && !(b->cfg.blob_flags & EBLOB_AUTO_DATASORT))
+		return 0;
 
-	/* Kick in data-sort if auto-sort is enabled */
-	if (b->cfg.blob_flags & EBLOB_AUTO_DATASORT)
-		return eblob_start_defrag(b);
-	else if (b->cfg.blob_flags & EBLOB_AUTO_INDEXSORT)
-		return eblob_start_index_sort(b);
+	eblob_log(b->cfg.log, EBLOB_LOG_INFO, "eblob: %s: plan to sort bctl: datasort: %d, indexsort: %d\n",
+	          __func__, (b->cfg.blob_flags & EBLOB_AUTO_DATASORT), (b->cfg.blob_flags & EBLOB_AUTO_INDEXSORT));
 
+	list_add_tail(&bctl->closed_unsorted_base_entry, &b->closed_unsorted_bases);
 	return 0;
 }
+
 
 /**
  * Returns number of seconds till next defrag run
@@ -1196,6 +1196,7 @@ err_out_exit:
  * - construct index
  * - flush "unsorted" cache
  *
+ * NB! Caller should hold backend lock.
  * TODO: Move index management to separate function
  */
 static int datasort_swap_memory(struct datasort_ctl *ds_ctl)
@@ -1344,8 +1345,10 @@ static int datasort_swap_memory(struct datasort_ctl *ds_ctl)
 	 * over it and it can still be used anywhere in code.
 	 */
 	list_replace(&unsorted_bctl->base_entry, &sorted_bctl->base_entry);
-	for (n = 1; n < dcfg->bctl_cnt; ++n)
-		__list_del(dcfg->bctl[n]->base_entry.prev, dcfg->bctl[n]->base_entry.next);
+	list_replace(&unsorted_bctl->closed_unsorted_base_entry, &sorted_bctl->closed_unsorted_base_entry);
+	for (n = 1; n < dcfg->bctl_cnt; ++n) {
+		eblob_extract_base_ctl(dcfg->bctl[n]);
+	}
 
 	/* Unlock hash */
 	pthread_rwlock_unlock(&dcfg->b->hash.root_lock);

@@ -46,6 +46,7 @@
 
 #include "ioprio.h"
 
+
 /**
  * eblob_want_defrag() - gets number of removed records/non-removed records
  * and compares it with total.
@@ -140,6 +141,113 @@ static int eblob_defrag_bctls_cmp(const void *lhs, const void *rhs) {
 int eblob_defrag(struct eblob_backend *b) {
 	return eblob_defrag_in_dir(b, NULL);
 }
+
+/**
+ * eblob_index_sort() - sort given bases indexes
+ */
+static int eblob_index_sort(struct eblob_backend *b, struct eblob_base_ctl **bctls, size_t bctl_num) {
+	assert(b);
+	assert(bctls);
+
+	EBLOB_WARNX(b->cfg.log, EBLOB_LOG_INFO, "defrag: eblob_index_sort: start index sort");
+	int err = 0;
+	for (size_t index = 0; index != bctl_num; ++index) {
+		struct eblob_base_ctl * const bctl = bctls[index];
+		if (bctl->index_ctl.sorted)
+			continue;
+
+		if ((err = eblob_generate_sorted_index(b, bctl))) {
+			EBLOB_WARNC(b->cfg.log, -err, EBLOB_LOG_ERROR,
+				    "defrag: indexsort: FAILED");
+			break;
+		}
+	}
+
+	EBLOB_WARNX(b->cfg.log, EBLOB_LOG_INFO, "defrag: eblob_index_sort: index sort finished");
+	return err;
+}
+
+
+/**
+ * eblob_datasort() - sort given bases
+ */
+static int eblob_datasort(struct eblob_backend *b, struct eblob_base_ctl **bctls,
+                          size_t bctl_num, const char *chunks_dir) {
+	assert(b);
+	assert(bctls);
+
+	int err = 0;
+	size_t index = 0;
+
+	EBLOB_WARNX(b->cfg.log, EBLOB_LOG_INFO, "defrag: eblob_datasort: %zd bases(s)", bctl_num);
+	for (index = 0; index != bctl_num; ++index) {
+		struct datasort_cfg dcfg = {
+			.b = b,
+			.bctl = &bctls[index],
+			.bctl_cnt = 1,
+			.log = b->cfg.log,
+			.chunks_dir = chunks_dir ? chunks_dir : b->cfg.chunks_dir,
+		};
+
+		if ((err = eblob_generate_sorted_data(&dcfg))) {
+			EBLOB_WARNC(b->cfg.log, -err, EBLOB_LOG_ERROR, "defrag: datasort: FAILED");
+			goto err_out_exit;
+		}
+	}
+
+
+err_out_exit:
+	EBLOB_WARNX(b->cfg.log, EBLOB_LOG_INFO, "defrag: eblob_datasort: finished");
+	return err;
+}
+
+
+/**
+ * eblob_move_base_queue_to_array() - moves entries from queue to new array and cleares a queue
+ * NB! Function takes backend lock
+ */
+static int eblob_move_base_queue_to_array(struct eblob_backend *b, struct list_head *list,
+                                          struct eblob_base_ctl ***bctls, size_t *bctl_num) {
+	assert(bctls);
+	assert(bctl_num);
+	assert(*bctls == NULL);
+
+	int err = 0;
+	pthread_mutex_lock(&b->lock);
+	if (list_empty(list)) {
+		pthread_mutex_unlock(&b->lock);
+		return err;
+	}
+
+	// We need a structure with list head for list_for_each_entry function
+	struct tmp_list {
+		struct list_head head;
+	} new_list;
+
+	list_replace_init(list, &new_list.head);
+	pthread_mutex_unlock(&b->lock);
+
+	*bctl_num = 0;
+	struct eblob_base_ctl *bctl = NULL;
+	list_for_each_entry(bctl, &new_list.head, closed_unsorted_base_entry) {
+		*bctl_num += 1;
+	}
+
+	*bctls = calloc(*bctl_num, sizeof(struct eblob_base_ctl *));
+	if (*bctls == NULL) {
+		err = -ENOMEM;
+		return err;
+	}
+
+	size_t index = 0;
+	list_for_each_entry(bctl, &new_list.head, closed_unsorted_base_entry) {
+		(*bctls)[index] = bctl;
+		++index;
+	}
+
+	return err;
+}
+
 
 /*!
  * eblob_defrag() - defrag (blocking call, synchronized)
@@ -351,6 +459,40 @@ err_out_exit:
 	return err;
 }
 
+
+/**
+ * eblob_process_closed_bases() - process queue of closed bases
+ */
+int eblob_process_closed_bases(struct eblob_backend *b, const char *chunks_dir) {
+	// sanity
+	if (b == NULL) {
+		return -EINVAL;
+	}
+
+	int err = 0;
+	struct eblob_base_ctl **bctls = NULL;
+	size_t bctl_num = 0;
+
+	if (list_empty(&b->closed_unsorted_bases)) {
+		return 0;
+	}
+
+	if ((err = eblob_move_base_queue_to_array(b, &b->closed_unsorted_bases, &bctls, &bctl_num))) {
+		return err;
+	}
+
+	// shortcuts
+	int indexsort_flag = b->cfg.blob_flags & EBLOB_AUTO_INDEXSORT;
+	int datasort_flag = b->cfg.blob_flags & EBLOB_AUTO_DATASORT;
+	if (indexsort_flag) {
+		err = eblob_index_sort(b, bctls, bctl_num);
+	} else if (datasort_flag) {
+		err = eblob_datasort(b, bctls, bctl_num, chunks_dir);
+	}
+
+	return err;
+}
+
 /**
  * eblob_defrag_thread() - defragmentation thread that runs defrag by timer
  */
@@ -388,7 +530,9 @@ void *eblob_defrag_thread(void *data)
 		b->defrag_chunks_dir = NULL;
 		pthread_mutex_unlock(&b->defrag_state_lock);
 
+		// TODO: error codes doesn't handle
 		eblob_defrag_in_dir(b, chunks_dir);
+		eblob_process_closed_bases(b, chunks_dir);
 
 		free(chunks_dir);
 

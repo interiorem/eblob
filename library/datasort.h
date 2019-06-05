@@ -126,8 +126,9 @@ int datasort_cleanup_stale(struct eblob_log *log, char *base, char *dir);
 /* Is base sorted or not? */
 int datasort_base_is_sorted(struct eblob_base_ctl *bctl);
 
-/* Forces data-sort to process as soon as possible */
-int datasort_force_sort(struct eblob_backend *b);
+/* Enqueue a base to the next defragmentation */
+int datasort_plan_base_sort(struct eblob_backend *b, struct eblob_base_ctl *bctl);
+
 /* Returns number of seconds till next defrag */
 uint64_t datasort_next_defrag(const struct eblob_backend *b);
 

@@ -129,7 +129,8 @@ inline static int eblob_fdatasync(int fd)
 
 struct eblob_base_ctl {
 	struct eblob_backend	*back;
-	struct list_head	base_entry;
+	struct list_head	base_entry;  // entry of queue of all bases
+	struct list_head	closed_unsorted_base_entry;  // entry of queue to sort after close.
 
 	int			index;
 
@@ -415,6 +416,8 @@ struct eblob_backend {
 	struct list_head	bases;
 	int			max_index;
 
+	struct list_head	closed_unsorted_bases;  // queue of closed bases to sort.
+
 	/* In memory cache */
 	struct eblob_hash	hash;
 	/* Level two hash table */
@@ -491,6 +494,11 @@ int eblob_add_new_base(struct eblob_backend *b);
 int eblob_load_data(struct eblob_backend *b);
 void eblob_bases_cleanup(struct eblob_backend *b);
 
+/**
+ * eblob_extract_base_ctl() - extract a base from bases list and closed unsorted bases list in backend object
+ */
+int eblob_extract_base_ctl(struct eblob_base_ctl *bctl);
+
 int eblob_cache_lookup(struct eblob_backend *b, struct eblob_key *key, struct eblob_ram_control *res, int *diskp);
 int eblob_cache_remove(struct eblob_backend *b, struct eblob_key *key);
 int eblob_cache_remove_nolock(struct eblob_backend *b, struct eblob_key *key);
@@ -514,6 +522,7 @@ int eblob_check_record(const struct eblob_base_ctl *bctl,
 
 int eblob_blob_iterate(struct eblob_iterate_control *ctl);
 
+int eblob_process_closed_bases(struct eblob_backend *b, const char *chunks_dir);
 void *eblob_defrag_thread(void *data);
 void eblob_base_remove(struct eblob_base_ctl *bctl);
 
