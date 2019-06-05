@@ -92,8 +92,7 @@ public:
 	: wrapper_(wrapper)
 	, gen_(std::mt19937(seed))
 	, dist_(std::move(d))
-	, data_dist_('a', 'a' + 26)
-	{
+	, data_dist_('a', 'a' + 26) {
 	}
 
 	item_t generate_item(uint64_t key) {

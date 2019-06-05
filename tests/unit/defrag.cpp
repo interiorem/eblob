@@ -98,17 +98,50 @@ int iterate_callback(struct eblob_disk_control *dc,
 	return 0;
 }
 
+void check_view_usage(eblob_wrapper &wrapper, size_t sorted_blob_number, size_t unsorted_blob_number) {
+	auto total_blob_number = sorted_blob_number + unsorted_blob_number;
+	auto &cfg = wrapper.get()->cfg;
+	auto view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER);
+	auto sorted_view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER);
+	auto sp_view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER);
+
+	if (!(cfg.blob_flags & EBLOB_USE_VIEWS)) {
+		BOOST_REQUIRE_EQUAL(view_used, 0);
+		BOOST_REQUIRE_EQUAL(sorted_view_used, 0);
+		BOOST_REQUIRE_EQUAL(sp_view_used, 0);
+	} else if (cfg.single_pass_file_size_threshold == 1) {
+		BOOST_REQUIRE_EQUAL(view_used, total_blob_number);
+		BOOST_REQUIRE_EQUAL(sorted_view_used, sorted_blob_number);
+		BOOST_REQUIRE_EQUAL(sp_view_used, unsorted_blob_number);
+	} else if (cfg.single_pass_file_size_threshold == 0) {
+		BOOST_REQUIRE_EQUAL(view_used, sorted_blob_number);
+		BOOST_REQUIRE_EQUAL(sorted_view_used, sorted_blob_number);
+		BOOST_REQUIRE_EQUAL(sp_view_used, 0);
+	} else {
+		BOOST_FAIL("unsupported single_pass_file_size_threshold param in test");
+	}
+
+}
 
 int datasort(eblob_wrapper &wrapper, const std::set<size_t> &indexes) {
 	size_t number_bases = indexes.size();
 	BOOST_REQUIRE(!indexes.empty());
 
+	// collect required bctls according to passed indexes
 	std::vector<eblob_base_ctl *> bctls;
 	bctls.reserve(number_bases);
 	eblob_base_ctl *bctl;
 	size_t loop_index = 0;
+	size_t sorted_count = 0;
+	size_t unsorted_count = 0;
 	list_for_each_entry(bctl, &wrapper.get()->bases, base_entry) {
 		if (indexes.count(loop_index)) {
+			// count number of sorted and unsorted chunks in this datasort to check stat later
+			if (datasort_base_is_sorted(bctl)) {
+				sorted_count++;
+			} else {
+				unsorted_count++;
+			}
 			bctls.emplace_back(bctl);
 		}
 
@@ -118,13 +151,26 @@ int datasort(eblob_wrapper &wrapper, const std::set<size_t> &indexes) {
 	}
 
 	BOOST_REQUIRE(bctls.size() == number_bases);
+
+	// prepare config for datasort
 	datasort_cfg dcfg;
 	memset(&dcfg, 0, sizeof(dcfg));
 	dcfg.b = wrapper.get();
 	dcfg.log = dcfg.b->cfg.log;
 	dcfg.bctl = bctls.data();
 	dcfg.bctl_cnt = bctls.size();
-	return eblob_generate_sorted_data(&dcfg);
+
+	// reset stats to get values based only on this defrag
+	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER, 0);
+
+	// run defrag on selected blobs
+	auto result = eblob_generate_sorted_data(&dcfg);
+
+	// check from stats that views were used appropriate number of times
+	check_view_usage(wrapper, sorted_count, unsorted_count);
+	return result;
 }
 
 
@@ -160,6 +206,16 @@ void run_with_different_modes(std::function<void(const eblob_config &)> runnable
 
 	// Enable views
 	BOOST_TEST_CHECKPOINT("running with enabled views");
+
+	// Enable views, but not single pass
+	BOOST_TEST_CHECKPOINT("running with zero single_pass_file_size_threshold");
+	cw.config.single_pass_file_size_threshold = 0;
+	runnable(cw.config);
+
+	// min non-zero value: single-pass is always on
+	BOOST_TEST_CHECKPOINT("running with 1 single_pass_file_size_threshold");
+	cw.reset_dirs();
+	cw.config.single_pass_file_size_threshold = 1;
 	runnable(cw.config);
 
 	// disable views

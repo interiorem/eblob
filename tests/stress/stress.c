@@ -828,6 +828,7 @@ main(int argc, char **argv)
 	bcfg.log = &logger;
 	bcfg.records_in_blob = cfg.blob_records;
 	bcfg.sync = cfg.blob_sync;
+	bcfg.single_pass_file_size_threshold = 512 << 10;
 	cfg.b = eblob_init(&bcfg);
 	if (cfg.b == NULL)
 		errx(EX_OSERR, "eblob_init");
