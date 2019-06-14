@@ -24,7 +24,7 @@
 eblob_config_test_wrapper initialize_eblob_config_for_defrag() {
 	eblob_config_test_wrapper wrapper;
 	auto &config = wrapper.config;
-	constexpr size_t RECORDS_IN_BLOB = 10;
+	constexpr size_t RECORDS_IN_BLOB = 100;
 	config.records_in_blob = RECORDS_IN_BLOB;
 	config.blob_size = 10 * (1ULL << 30); // 10Gib
 	config.defrag_timeout = 0; // we don't want to autodefrag
