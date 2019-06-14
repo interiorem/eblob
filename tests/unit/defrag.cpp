@@ -226,15 +226,15 @@ void run_with_different_modes(std::function<void(const eblob_config &)> runnable
 }
 
 /**
- * 1) Make two bases with 100 records each.
- *    State: data.0(unsorted, 100 records), data.1(unsorted, 100 records)
+ * 1) Make two bases with 10 records each.
+ *    State: data.0(unsorted, 10 records), data.1(unsorted, 10 records)
  * 2) Defrag first base
- *    State: data.0(sorted, 100 records), data.1(unsorted, 100 records)
+ *    State: data.0(sorted, 10 records), data.1(unsorted, 10 records)
  * 3) Remove half of first base.
- *    State: data.0(sorted, 50 records), data.1(unsorted, 100 records)
+ *    State: data.0(sorted, 5 records), data.1(unsorted, 10 records)
  * 4) Defrag first base.
- *    State: data.0(sorted with view, 50 records), data.1(unsorted, 100 records)
- * 5) Check that bases contains all 150 records
+ *    State: data.0(sorted with view, 5 records), data.1(unsorted, 10 records)
+ * 5) Check that bases contains all 15 records
  */
 void run_first_base_sorted_second_base_unsorted(const eblob_config &eblob_config);
 BOOST_AUTO_TEST_CASE(first_base_sorted_second_base_unsorted) {
@@ -275,15 +275,15 @@ void run_first_base_sorted_second_base_unsorted(const eblob_config &eblob_config
 
 
 /**
- * 1) Make two bases with 100 records each.
- *    State: data.0(unsorted, 100 records), data.1(unsorted, 100 records)
+ * 1) Make two bases with 10 records each.
+ *    State: data.0(unsorted, 10 records), data.1(unsorted, 10 records)
  * 2) Defrag first base
- *    State: data.0(sorted, 100 records), data.1(unsorted, 100 records)
+ *    State: data.0(sorted, 10 records), data.1(unsorted, 10 records)
  * 3) Remove a half from each base
- *    State: data.0(sorted, 50 records), data.1(unsorted, 50 records)
+ *    State: data.0(sorted, 5 records), data.1(unsorted, 5 records)
  * 4) Defrag two bases with view on first base
- *    State: data.0(sorted, 100 records)
- * 5) Check that result base contains 100 records
+ *    State: data.0(sorted, 10 records)
+ * 5) Check that result base contains 10 records
  */
 void run_merge_sorted_and_unsorted_bases(const eblob_config &config);
 BOOST_AUTO_TEST_CASE(merge_sorted_and_unsorted_bases) {
@@ -326,15 +326,15 @@ void run_merge_sorted_and_unsorted_bases(const eblob_config &config) {
 
 
 /**
- *  1) Make two bases with 100 records each.
- *     State: data.0(unsorted, 100 record), data.1(unsorted, 100 records)
+ *  1) Make two bases with 10 records each.
+ *     State: data.0(unsorted, 10 record), data.1(unsorted, 10 records)
  *  2) Defrag two bases separately
- *     State: data.0(sorted, 100 records), data.1(sorted, 100 records)
+ *     State: data.0(sorted, 10 records), data.1(sorted, 10 records)
  *  3) Remove a half from each base
- *     State: data.0(sorted, 50 records), data.1(sorted, 50 records)
+ *     State: data.0(sorted, 5 records), data.1(sorted, 5 records)
  *  4) Defrag two bases with view on first base
- *     State: data.0(sorted, 100 records)
- *  5) Check that result base contains 100 records
+ *     State: data.0(sorted, 10 records)
+ *  5) Check that result base contains 10 records
  */
 void run_merge_sorted_and_sorted_bases(const eblob_config &);
 BOOST_AUTO_TEST_CASE(merge_sorted_and_sorted_bases) {
@@ -380,13 +380,13 @@ void run_merge_sorted_and_sorted_bases(const eblob_config &config) {
 
 
 /**
- *  1) Make two bases with 100 records each.
- *     State: data.0(unsorted, 100 record), data.1(unsorted, 100 records)
+ *  1) Make two bases with 10 records each.
+ *     State: data.0(unsorted, 10 record), data.1(unsorted, 10 records)
  *  3) Remove a half from each base
- *     State: data.0(unsorted, 50 records), data.1(unsorted, 50 records)
+ *     State: data.0(unsorted, 5 records), data.1(unsorted, 5 records)
  *  4) Defrag two bases without view on bases
- *     State: data.0(sorted, 100 records)
- *  5) Check that result base contains 100 records
+ *     State: data.0(sorted, 10 records)
+ *  5) Check that result base contains 10 records
  */
 void run_merge_unsorted_and_unsorted_bases(const eblob_config &config);
 BOOST_AUTO_TEST_CASE(merge_unsorted_and_unsorted_bases) {
@@ -428,13 +428,13 @@ void run_merge_unsorted_and_unsorted_bases(const eblob_config &config) {
 
 
 /**
- *  1) Make three bases with 100 records each.
- *     State: data.0(unsorted, 100 record), data.1(unsorted, 100 records), data.2(unsorted, 100 records)
+ *  1) Make three bases with 10 records each.
+ *     State: data.0(unsorted, 10 record), data.1(unsorted, 10 records), data.2(unsorted, 10 records)
  *  3) Remove elements from two bases
- *     State: data.0(unsorted, 0 records), data.1(unsorted, 0 records), data.2(unsorted, 100 records)
+ *     State: data.0(unsorted, 0 records), data.1(unsorted, 0 records), data.2(unsorted, 10 records)
  *  4) Defrag all bases
- *     State: data.2(unsorted, 100 records)
- *  5) Check that result base contains 100 records
+ *     State: data.2(unsorted, 10 records)
+ *  5) Check that result base contains 10 records
  */
 void run_remove_bases(const eblob_config &config);
 BOOST_AUTO_TEST_CASE(remove_bases) {
