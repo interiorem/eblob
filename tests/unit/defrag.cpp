@@ -603,3 +603,29 @@ BOOST_AUTO_TEST_CASE(test_defrag_in_dir) {
 	// check that defrag succeeded
 	BOOST_REQUIRE_EQUAL(eblob_stat_get(backend->stat, EBLOB_GST_DATASORT_COMPLETION_STATUS), 0);
 }
+
+
+BOOST_AUTO_TEST_CASE(test_defrag_by_position) {
+	eblob_config_test_wrapper config_wrapper(true, EBLOB_LOG_INFO);
+	config_wrapper.config.records_in_blob = 1000000; // 10^5
+	config_wrapper.config.blob_size = 10000 * 10000; // 10^8
+
+	eblob_wrapper wrapper(config_wrapper.config);
+	auto generator = make_default_item_generator(wrapper);
+	std::vector<size_t> indexes(config_wrapper.config.records_in_blob);
+	for (size_t index = 0; index != indexes.size(); ++index) {
+		indexes[index] = index;
+	}
+
+	std::mt19937 g;
+	std::shuffle(indexes.begin(), indexes.end(), g);
+	for (size_t index = 0; index != config_wrapper.config.records_in_blob; ++index) {
+		size_t key = indexes[index];
+		auto item = generator.generate_item(key, 10);
+		BOOST_REQUIRE_EQUAL(eblob_write_hashed(wrapper.get(), &key, sizeof(key), item.value.data(), 0, item.value.size(), 0), 0);
+	}
+
+	// TODO(s-mx): add indexsort
+
+	datasort(wrapper, {0});
+}

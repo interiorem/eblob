@@ -13,7 +13,7 @@
 
 class eblob_config_test_wrapper {
 public:
-	eblob_config_test_wrapper(bool cleanup_files = true);
+	eblob_config_test_wrapper(bool cleanup_files = true, int log_level = EBLOB_LOG_DEBUG);
 	~eblob_config_test_wrapper();
 
 	eblob_config_test_wrapper(const eblob_config_test_wrapper &) = delete;
@@ -35,6 +35,7 @@ public:
 
 private:
 	bool cleanup_files_;
+	int log_level_;
 	std::string data_dir_template_;
 	std::string data_dir_;
 	std::string data_path_;

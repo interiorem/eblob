@@ -8,8 +8,9 @@
 #include "library/crypto/sha512.h"
 
 
-eblob_config_test_wrapper::eblob_config_test_wrapper(bool cleanup_files)
-: cleanup_files_(cleanup_files) {
+eblob_config_test_wrapper::eblob_config_test_wrapper(bool cleanup_files, int log_level)
+: cleanup_files_(cleanup_files)
+, log_level_(log_level) {
 	reset_dirs();
 	config.blob_flags = EBLOB_L2HASH | EBLOB_DISABLE_THREADS | EBLOB_AUTO_INDEXSORT;
 	config.sync = -2;
@@ -42,7 +43,7 @@ void eblob_config_test_wrapper::reset_dirs() {
 	data_dir_ = mkdtemp(&data_dir_template_.front());
 	data_path_ = data_dir_ + "/data";
 	log_path_ = data_dir_ + "/log.log";
-	logger_.reset(new ioremap::eblob::eblob_logger(log_path_.c_str(), EBLOB_LOG_DEBUG));
+	logger_.reset(new ioremap::eblob::eblob_logger(log_path_.c_str(), log_level_));
 	config.log = logger_->log();
 	config.file = const_cast<char*>(data_path_.c_str());
 	config.chunks_dir = const_cast<char*>(data_dir_.c_str());

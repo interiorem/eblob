@@ -866,10 +866,6 @@ static int eblob_blob_iterator(struct eblob_iterate_priv *iter_priv)
 	int err = 0;
 	int current_range_index = -1;
 
-	/*
-	 * TODO: We should probably use unsorted index because order of records
-	 * in it is identical to order of records in data blob.
-	 */
 	static const int hdr_size = sizeof(struct eblob_disk_control);
 
 	memset(&loc, 0, sizeof(loc));
@@ -1055,6 +1051,78 @@ err_out_check:
 	return err;
 }
 
+
+/**
+ * eblob_disk_control_cmp_by_position() - compares dc's by position in a blob file
+ */
+static int eblob_disk_control_cmp_by_position(const void *lhs, const void *rhs) {
+	const struct eblob_disk_control *left = (const struct eblob_disk_control *)lhs;
+	const struct eblob_disk_control *right = (const struct eblob_disk_control *)rhs;
+	if (left->position < right->position) {
+		return -1;
+	} else if (left->position > right->position) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
+/**
+ * eblob_blob_iterate_by_pos() - read whole index, sort it by position and run iteration over it.
+ */
+static int eblob_blob_iterate_by_pos(struct eblob_iterate_priv *iter_priv)
+{
+	struct eblob_iterate_control *ctl;
+	struct eblob_base_ctl *bctl;
+
+	struct eblob_iterate_local loc;
+	int err = 0;
+
+	static const int hdr_size = sizeof(struct eblob_disk_control);
+
+	if (iter_priv == NULL) {
+		err = -EINVAL;
+		return err;
+	}
+
+	ctl = iter_priv->ctl;
+	bctl = ctl->base;
+
+	memset(&loc, 0, sizeof(loc));
+
+	loc.iter_priv = iter_priv;
+	loc.index_offset = 0;
+	loc.pos = 0;
+	loc.num = bctl->index_ctl.size / hdr_size;
+
+	loc.dc = calloc(loc.num, hdr_size);
+
+	pthread_mutex_lock(&bctl->lock);
+	err = __eblob_read_ll(bctl->index_ctl.fd, loc.dc, loc.num * hdr_size, 0);
+	pthread_mutex_unlock(&bctl->lock);
+	if (err) {
+		goto err_out_check;
+	}
+
+	qsort(loc.dc, loc.num, hdr_size, eblob_disk_control_cmp_by_position);
+
+	eblob_bctl_hold(bctl);
+	err = eblob_check_disk(&loc);
+	eblob_bctl_release(bctl);
+
+err_out_check:
+	free(loc.dc);
+	eblob_log(ctl->log, err < 0 ? EBLOB_LOG_ERROR : EBLOB_LOG_INFO, "blob-0.%d: iterated: data_fd: %d, index_fd: %d, "
+									"data_size: %llu, index_offset: %llu, err: %d\n",
+		  bctl->index, bctl->data_ctl.fd, bctl->index_ctl.fd, ctl->data_size, ctl->index_offset, err);
+
+	if (ctl->err == 0 && err != 0)
+		ctl->err = err;
+
+	return err;
+}
+
+
 /**
  * eblob_blob_iterate() - eblob forward iterator.
  * Creates and initialized iterator threads.
@@ -1097,7 +1165,16 @@ int eblob_blob_iterate(struct eblob_iterate_control *ctl)
 		}
 	}
 
-	err = eblob_blob_iterator(&iter_priv);
+	if (!(ctl->flags & EBLOB_ITERATE_FLAGS_BY_POSITION)) {
+		err = eblob_blob_iterator(&iter_priv);
+	} else {
+		if ((ctl->flags & EBLOB_ITERATE_FLAGS_ALL) && (ctl->flags & EBLOB_ITERATE_FLAGS_READONLY)) {
+			err = eblob_blob_iterate_by_pos(&iter_priv);
+		} else {
+			err = -EINVAL;
+		}
+	}
+
 	if (err) {
 		ctl->err = err;
 		eblob_log(ctl->log, EBLOB_LOG_ERROR, "blob: iterator failed: %d.\n", err);
