@@ -51,6 +51,9 @@ public:
 	bool expect_blob_sorted;
 	size_t number_checked = 0;
 	size_t prev_offset = 0;
+
+	bool check_dc_positions = false;
+	int last_dc_position = 0;
 };
 
 
@@ -77,6 +80,11 @@ int iterate_callback(struct eblob_disk_control *dc,
 	BOOST_REQUIRE(!item.removed);  // item removed
 	BOOST_REQUIRE(!item.checked); //  item already checked
 	BOOST_REQUIRE_EQUAL(dc->data_size, item.value.size());  // sizes mismatch
+
+	if (ipriv.check_dc_positions) {
+		BOOST_REQUIRE_LE(ipriv.last_dc_position, dc->position);
+		ipriv.last_dc_position = dc->position;
+	}
 
 	std::vector<char> data(dc->data_size);
 	int ret = __eblob_read_ll(fd, data.data(), dc->data_size, data_offset);
@@ -201,7 +209,9 @@ int datasort(eblob_wrapper &wrapper, const std::set<size_t> &indexes) {
 }
 
 
-int iterate(eblob_wrapper &wrapper, iterator_private &priv) {
+int iterate(eblob_wrapper &wrapper,
+            iterator_private &priv,
+            int iterate_flags = EBLOB_ITERATE_FLAGS_ALL | EBLOB_ITERATE_FLAGS_READONLY) {
 	eblob_iterate_callbacks callbacks;
 	memset(&callbacks, 0, sizeof(callbacks));
 	callbacks.iterator = iterate_callback;
@@ -210,7 +220,7 @@ int iterate(eblob_wrapper &wrapper, iterator_private &priv) {
 	memset(&ictl, 0, sizeof(struct eblob_iterate_control));
 	ictl.b = wrapper.get();
 	ictl.log = ictl.b->cfg.log;
-	ictl.flags = EBLOB_ITERATE_FLAGS_ALL | EBLOB_ITERATE_FLAGS_READONLY;
+	ictl.flags = iterate_flags;
 	ictl.iterator_cb = callbacks;
 	ictl.priv = &priv;
 	return eblob_iterate(wrapper.get(), &ictl);
@@ -249,6 +259,11 @@ void run_with_different_modes(std::function<void(const eblob_config &)> runnable
 	BOOST_TEST_CHECKPOINT("running with views disabled");
 	cw.reset_dirs();
 	cw.config.blob_flags = EBLOB_L2HASH | EBLOB_DISABLE_THREADS;
+	runnable(cw.config);
+
+	BOOST_TEST_CHECKPOINT("running with chunk splitting by position");
+	cw.reset_dirs();
+	cw.config.blob_flags = EBLOB_L2HASH | EBLOB_DISABLE_THREADS | EBLOB_SORT_BY_POS;
 	runnable(cw.config);
 }
 
@@ -606,26 +621,20 @@ BOOST_AUTO_TEST_CASE(test_defrag_in_dir) {
 
 
 BOOST_AUTO_TEST_CASE(test_defrag_by_position) {
+	const size_t TOTAL_RECORDS = 10;
 	eblob_config_test_wrapper config_wrapper(true, EBLOB_LOG_INFO);
-	config_wrapper.config.records_in_blob = 1000000; // 10^5
-	config_wrapper.config.blob_size = 10000 * 10000; // 10^8
+	config_wrapper.config.records_in_blob = TOTAL_RECORDS;
+	config_wrapper.config.blob_flags |= EBLOB_ITERATE_FLAGS_BY_POSITION;
 
 	eblob_wrapper wrapper(config_wrapper.config);
-	auto generator = make_default_item_generator(wrapper);
-	std::vector<size_t> indexes(config_wrapper.config.records_in_blob);
-	for (size_t index = 0; index != indexes.size(); ++index) {
-		indexes[index] = index;
-	}
+	std::vector<item_t> shadow_elems;
+	auto generator = make_uniform_item_generator(wrapper, 10, 10);
+	fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS);
 
-	std::mt19937 g;
-	std::shuffle(indexes.begin(), indexes.end(), g);
-	for (size_t index = 0; index != config_wrapper.config.records_in_blob; ++index) {
-		size_t key = indexes[index];
-		auto item = generator.generate_item(key, 10);
-		BOOST_REQUIRE_EQUAL(eblob_write_hashed(wrapper.get(), &key, sizeof(key), item.value.data(), 0, item.value.size(), 0), 0);
-	}
-
-	// TODO(s-mx): add indexsort
-
-	datasort(wrapper, {0});
+	eblob_base_ctl *first_bctl = container_of(wrapper.get()->bases.next, eblob_base_ctl, base_entry);
+	BOOST_REQUIRE_EQUAL(eblob_generate_sorted_index(wrapper.get(), first_bctl), 0);
+	iterator_private priv(shadow_elems, false);
+	priv.check_dc_positions = true;
+	int flags = EBLOB_ITERATE_FLAGS_ALL | EBLOB_ITERATE_FLAGS_READONLY | EBLOB_ITERATE_FLAGS_BY_POSITION;
+	BOOST_REQUIRE_EQUAL(iterate(wrapper, priv, flags), 0);
 }
