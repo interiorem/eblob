@@ -34,16 +34,6 @@ eblob_config_test_wrapper initialize_eblob_config_for_defrag() {
 	return wrapper;
 }
 
-template<class D>
-void fill_eblob(eblob_wrapper &wrapper,
-                std::vector<item_t> &shadow_elems,
-                item_generator<D> &generator,
-                size_t total_records) {
-	for (size_t index = 0; index != total_records; ++index) {
-		shadow_elems.push_back(generator.generate_item(index));
-		BOOST_REQUIRE_EQUAL(wrapper.insert_item(shadow_elems.back()), 0);
-	}
-}
 
 class iterator_private {
 public:
@@ -252,7 +242,7 @@ void run_first_base_sorted_second_base_unsorted(const eblob_config &eblob_config
 	auto generator = make_default_item_generator(wrapper);
 	std::vector<item_t> shadow_elems;
 
-	fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS);
+	BOOST_REQUIRE_EQUAL(fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS), 0);
 
 	BOOST_REQUIRE_EQUAL(datasort(wrapper, {0}), 0);
 
@@ -300,7 +290,7 @@ void run_merge_sorted_and_unsorted_bases(const eblob_config &config) {
 	auto generator = make_default_item_generator(wrapper);
 	std::vector<item_t> shadow_elems;
 
-	fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS);
+	BOOST_REQUIRE_EQUAL(fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS), 0);
 
 	// Sort first base
 	BOOST_REQUIRE_EQUAL(datasort(wrapper, {0}), 0);
@@ -352,7 +342,7 @@ void run_merge_sorted_and_sorted_bases(const eblob_config &config) {
 	auto generator = make_default_item_generator(wrapper);
 	std::vector<item_t> shadow_elems;
 
-	fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS);
+	BOOST_REQUIRE_EQUAL(fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS), 0);
 
 	// Sort bases separately
 	BOOST_REQUIRE_EQUAL(datasort(wrapper, {0}), 0);
@@ -404,7 +394,7 @@ void run_merge_unsorted_and_unsorted_bases(const eblob_config &config) {
 	auto generator = make_default_item_generator(wrapper);
 	std::vector<item_t> shadow_elems;
 
-	fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS);
+	BOOST_REQUIRE_EQUAL(fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS), 0);
 
 	// Remove a half from first base
 	for (size_t index = 0; index != RECORDS_TO_REMOVE_IN_BASE; ++index) {
@@ -452,7 +442,7 @@ void run_remove_bases(const eblob_config &config) {
 	auto generator = make_default_item_generator(wrapper);
 	std::vector<item_t> shadow_elems;
 
-	fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS);
+	BOOST_REQUIRE_EQUAL(fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS), 0);
 
 	// Sort bases separately
 	BOOST_REQUIRE_EQUAL(datasort(wrapper, {0}), 0);

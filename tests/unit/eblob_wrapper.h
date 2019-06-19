@@ -76,6 +76,8 @@ public:
 
 	int remove_item(item_t &item);
 
+	size_t number_bases() const;
+
 private:
 	eblob_config config_;
 	eblob_backend *backend_ = nullptr;
@@ -95,12 +97,16 @@ public:
 	, data_dist_('a', 'a' + 26) {
 	}
 
-	item_t generate_item(uint64_t key) {
-		size_t datasize = dist_(gen_);
+	item_t generate_sized_item(uint64_t key, size_t datasize) {
 		std::vector<char> data = generate_random_data(datasize);
 		struct eblob_key hashed_key;
 		eblob_hash(wrapper_.get(), hashed_key.id, sizeof(hashed_key.id), &key, sizeof(key));
 		return item_t(key, hashed_key, data);
+	}
+
+	item_t generate_item(uint64_t key) {
+		size_t datasize = dist_(gen_);
+		return generate_sized_item(key, datasize);
 	}
 
 private:
@@ -118,6 +124,23 @@ private:
 	D dist_;
 	std::uniform_int_distribution<char> data_dist_;
 };
+
+
+template<class D>
+int fill_eblob(eblob_wrapper &wrapper,
+		std::vector<item_t> &shadow_elems,
+		item_generator<D> &generator,
+		size_t total_records) {
+	int err = 0;
+	for (size_t index = 0; index != total_records; ++index) {
+		shadow_elems.push_back(generator.generate_item(index));
+		if ((err = wrapper.insert_item(shadow_elems.back())))
+			return err;
+	}
+
+	return 0;
+}
+
 
 template<class D>
 item_generator<D>
@@ -143,5 +166,17 @@ make_default_item_generator(eblob_wrapper &wrapper, uint64_t seed = DEFAULT_RAND
 	std::piecewise_constant_distribution<> dist(i.begin(), i.end(), w.begin());
 	return item_generator<std::piecewise_constant_distribution<double>>(wrapper, dist, seed);
 }
+
+
+inline
+item_generator<std::uniform_int_distribution<unsigned>>
+make_uniform_item_generator(eblob_wrapper &wrapper,
+                            unsigned left, unsigned right,
+                            uint64_t seed = DEFAULT_RANDOM_SEED) {
+	assert(left <= right);
+	std::uniform_int_distribution<unsigned> dist(left, right);
+	return make_item_generator(wrapper, dist, seed);
+}
+
 
 eblob_key hash(std::string key);
