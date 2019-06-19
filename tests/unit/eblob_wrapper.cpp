@@ -98,6 +98,17 @@ int eblob_wrapper::remove_item(item_t &item) {
 	return eblob_remove_hashed(get(), &item.key, sizeof(item.key));
 }
 
+
+size_t eblob_wrapper::number_bases() const {
+	size_t number = 0;
+	const eblob_base_ctl *bctl;
+	list_for_each_entry(bctl, &get()->bases, base_entry) {
+		++number;
+	}
+	return number;
+}
+
+
 eblob_key hash(std::string key) {
 	eblob_key ret;
 	sha512_buffer(key.data(), key.size(), ret.id);
