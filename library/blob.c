@@ -2100,6 +2100,11 @@ out_exit:
 int eblob_write_prepare(struct eblob_backend *b, struct eblob_key *key,
 		uint64_t size, uint64_t flags)
 {
+	/* Sanity */
+	if (b == NULL || key == NULL) {
+		return -EINVAL;
+	}
+
 	FORMATTED(HANDY_TIMER_SCOPE, ("eblob.%u.disk.write.prepare", b->cfg.stat_id));
 	struct eblob_write_control wc = { .offset = 0 };
 	struct eblob_ram_control old;
@@ -2109,13 +2114,6 @@ int eblob_write_prepare(struct eblob_backend *b, struct eblob_key *key,
 	EBLOB_WARNX(b->cfg.log, EBLOB_LOG_DEBUG,
 			"key: %s, size: %" PRIu64 ", flags: %s",
 			eblob_dump_id(key->id), size, eblob_dump_dctl_flags(flags));
-
-
-	/* Sanity */
-	if (b == NULL || key == NULL) {
-		err = -EINVAL;
-		goto err_out_exit;
-	}
 
 	/*
 	 * For eblob_write_prepare() this can fail with -E2BIG if we try to overwrite
