@@ -88,12 +88,47 @@ int iterate_callback(struct eblob_disk_control *dc,
 	return 0;
 }
 
-void check_view_usage(eblob_wrapper &wrapper, size_t sorted_blob_number, size_t unsorted_blob_number) {
+
+struct bases_stats {
+	size_t number_blobs = 0;
+	size_t size_alive_data = 0;
+	size_t size_removed_data = 0;
+	size_t number_alive_records = 0;
+	size_t number_removed_records = 0;
+};
+
+
+bases_stats calculate_bases_stats_by_bases(eblob_base_ctl **bctls, size_t bctl_cnt) {
+	bases_stats stats;
+	stats.number_blobs = bctl_cnt;
+	for (size_t index = 0; index != bctl_cnt; ++index) {
+		eblob_base_ctl *bctl = bctls[index];
+		size_t number_records = eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_TOTAL);
+		size_t removed_records = eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_REMOVED);
+		stats.number_alive_records += number_records - removed_records;
+		stats.number_removed_records += removed_records;
+		size_t datasize = eblob_stat_get(bctl->stat, EBLOB_LST_BASE_SIZE);
+		size_t removed_datasize = eblob_stat_get(bctl->stat, EBLOB_LST_REMOVED_SIZE);
+		stats.size_alive_data += datasize - removed_datasize;
+		stats.size_removed_data += removed_datasize;
+	}
+
+	return stats;
+}
+
+void check_defrag_stats(eblob_wrapper &wrapper, size_t sorted_blob_number,
+                        size_t unsorted_blob_number, bases_stats &stats) {
 	auto total_blob_number = sorted_blob_number + unsorted_blob_number;
 	auto &cfg = wrapper.get()->cfg;
-	auto view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER);
-	auto sorted_view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER);
-	auto sp_view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER);
+	eblob_stat *stat = wrapper.get()->stat;
+	int view_used = eblob_stat_get(stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER);
+	int sorted_view_used = eblob_stat_get(stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER);
+	int sp_view_used = eblob_stat_get(stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER);
+	size_t number_touched_blobs = eblob_stat_get(stat, EBLOB_GST_DATASORT_BLOBS_NUMBER);
+	size_t size_alive_data = eblob_stat_get(stat, EBLOB_GST_DATASORT_ALIVE_DATA_SIZE);
+	size_t size_removed_data = eblob_stat_get(stat, EBLOB_GST_DATASORT_REMOVED_DATA_SIZE);
+	size_t number_alive_records = eblob_stat_get(stat, EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER);
+	size_t number_removed_records = eblob_stat_get(stat, EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER);
 
 	if (!(cfg.blob_flags & EBLOB_USE_VIEWS)) {
 		BOOST_REQUIRE_EQUAL(view_used, 0);
@@ -111,6 +146,11 @@ void check_view_usage(eblob_wrapper &wrapper, size_t sorted_blob_number, size_t 
 		BOOST_FAIL("unsupported single_pass_file_size_threshold param in test");
 	}
 
+	BOOST_REQUIRE_EQUAL(number_touched_blobs, stats.number_blobs);
+	BOOST_REQUIRE_EQUAL(size_alive_data, stats.size_alive_data);
+	BOOST_REQUIRE_EQUAL(size_removed_data, stats.size_removed_data);
+	BOOST_REQUIRE_EQUAL(number_alive_records, stats.number_alive_records);
+	BOOST_REQUIRE_EQUAL(number_removed_records, stats.number_removed_records);
 }
 
 int datasort(eblob_wrapper &wrapper, const std::set<size_t> &indexes) {
@@ -150,16 +190,13 @@ int datasort(eblob_wrapper &wrapper, const std::set<size_t> &indexes) {
 	dcfg.bctl = bctls.data();
 	dcfg.bctl_cnt = bctls.size();
 
-	// reset stats to get values based only on this defrag
-	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER, 0);
-	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER, 0);
-	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER, 0);
-
+	bases_stats stats = calculate_bases_stats_by_bases(dcfg.bctl, dcfg.bctl_cnt);
 	// run defrag on selected blobs
+	eblob_defrag_reset_stats(dcfg.b);
 	auto result = eblob_generate_sorted_data(&dcfg);
 
 	// check from stats that views were used appropriate number of times
-	check_view_usage(wrapper, sorted_count, unsorted_count);
+	check_defrag_stats(wrapper, sorted_count, unsorted_count, stats);
 	return result;
 }
 

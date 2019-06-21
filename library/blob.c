@@ -1744,6 +1744,8 @@ static int eblob_check_free_space(struct eblob_backend *b, uint64_t size)
 /*!
  * Low-level counterpart for \fn eblob_write_prepare_disk()
  * NB! Caller should hold "backend" lock.
+ *
+ * TODO: we don't set data_ctl.size on close. it's bad, fix it later
  */
 static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key *key,
 		struct eblob_write_control *wc, uint64_t prepare_disk_size,
