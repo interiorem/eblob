@@ -125,6 +125,31 @@ static const struct eblob_stat_entry eblob_stat_default_global[] = {
 		{0}
 	},
 	{
+		"datasort_touched_blobs_number",
+		EBLOB_GST_DATASORT_BLOBS_NUMBER,
+		{0}
+	},
+	{
+		"datasort_alive_data_size",
+		EBLOB_GST_DATASORT_ALIVE_DATA_SIZE,
+		{0}
+	},
+	{
+		"datasort_removed_data_size",
+		EBLOB_GST_DATASORT_REMOVED_DATA_SIZE,
+		{0}
+	},
+	{
+		"datasort_alive_records_number",
+		EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER,
+		{0}
+	},
+	{
+		"datasort_removed_records_number",
+		EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER,
+		{0}
+	},
+	{
 		"MAX",
 		EBLOB_GST_MAX,
 		{0}

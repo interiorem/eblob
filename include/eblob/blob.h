@@ -750,6 +750,11 @@ enum eblob_stat_global_flavour {
 	EBLOB_GST_DATASORT_VIEW_USED_NUMBER,
 	EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER,
 	EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER,
+	EBLOB_GST_DATASORT_BLOBS_NUMBER,
+	EBLOB_GST_DATASORT_ALIVE_DATA_SIZE,
+	EBLOB_GST_DATASORT_REMOVED_DATA_SIZE,
+	EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER,
+	EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER,
 	EBLOB_GST_MAX,
 };
 
@@ -793,6 +798,7 @@ int eblob_defrag(struct eblob_backend *b);
 int eblob_periodic(struct eblob_backend *b);
 int eblob_inspect(struct eblob_backend *b);
 
+void eblob_defrag_reset_stats(struct eblob_backend *b);
 int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir);
 
 enum eblob_inspect_state {

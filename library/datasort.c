@@ -1039,6 +1039,10 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 	uint64_t total_items = 0;
 	uint64_t offset = 0;
 	int err = 0;
+	size_t datasize = 0;               // size of whole data (alive, removed)
+	size_t alive_datasize = 0;          // size of alive data
+	size_t number_records = 0;         // number of all records (alive, removed)
+	size_t number_alive_records = 0;    // number of removed records
 
 	assert(ds_ctl != NULL);
 	assert(list_empty(&ds_ctl->sorted_chunks) == 0);
@@ -1049,6 +1053,13 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 	assert(dcfg != NULL);
 
 	EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO, "defrag: merge: start");
+
+	/* Calculate size of data and number of records */
+	for (int index = 0; index != dcfg->bctl_cnt; ++index) {
+		struct eblob_base_ctl *bctl = dcfg->bctl[index];
+		datasize += eblob_stat_get(bctl->stat, EBLOB_LST_BASE_SIZE);
+		number_records += eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_TOTAL);
+	}
 
 	/* Create resulting chunk */
 	merged_chunk = datasort_add_chunk(dcfg, ds_ctl->dir);
@@ -1078,6 +1089,9 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 		current_count = chunk->merge_count - 1;
 		dc = &chunk->index[current_count];
 
+		alive_datasize += dc->disk_size + sizeof(struct eblob_disk_control);
+		++number_alive_records;
+
 		err = datasort_copy_record(dcfg, chunk, merged_chunk, dc, merged_chunk->offset);
 		if (err != 0) {
 			EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, -err,
@@ -1106,6 +1120,13 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 			merged_chunk->fd, merged_chunk->count, merged_chunk->offset, merged_chunk->path);
 
 	datasort_destroy_chunks(dcfg, &ds_ctl->sorted_chunks);
+
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_ALIVE_DATA_SIZE, alive_datasize);
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_REMOVED_DATA_SIZE, datasize - alive_datasize);
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER, number_alive_records);
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER,
+	               number_records - number_alive_records);
+
 	return merged_chunk;
 
 err:
@@ -1542,6 +1563,7 @@ int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 		if (dcfg->bctl[n] == NULL)
 			return -EINVAL;
 
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_BLOBS_NUMBER, dcfg->bctl_cnt);
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		EBLOB_WARNX(dcfg->log, EBLOB_LOG_NOTICE, "defrag: sorting: %s", dcfg->bctl[n]->name);
 

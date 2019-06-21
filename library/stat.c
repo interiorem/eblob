@@ -131,6 +131,13 @@ eblob_stat_global_print(FILE *fp, struct eblob_backend *b)
 		fprintf(fp, "%s: %" PRId64 "\n",
 				eblob_stat_get_name(b->stat, i),
 				eblob_stat_get(b->stat, i));
+	fprintf(fp, "datasort_total_data_size: %" PRId64 "\n",
+	        eblob_stat_get(b->stat, EBLOB_GST_DATASORT_ALIVE_DATA_SIZE) +
+	        eblob_stat_get(b->stat, EBLOB_GST_DATASORT_REMOVED_DATA_SIZE));
+
+	fprintf(fp, "datasort_total_records_number: %" PRId64 "\n",
+	        eblob_stat_get(b->stat, EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER) +
+	        eblob_stat_get(b->stat, EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER));
 	fprintf(fp, "\n");
 }
 

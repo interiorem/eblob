@@ -40,6 +40,14 @@ static void eblob_stat_global_json(struct eblob_backend *b, rapidjson::Value &st
 {
 	for (uint32_t i = EBLOB_GST_MIN + 1; i < EBLOB_GST_MAX; i++)
 		stat.AddMember(rapidjson::StringRef(eblob_stat_get_name(b->stat, i)), eblob_stat_get(b->stat, i), allocator);
+
+	stat.AddMember("datasort_total_data_size",
+	               eblob_stat_get(b->stat, EBLOB_GST_DATASORT_ALIVE_DATA_SIZE) +
+	               eblob_stat_get(b->stat, EBLOB_GST_DATASORT_REMOVED_DATA_SIZE), allocator);
+
+	stat.AddMember("datasort_total_records_number",
+	               eblob_stat_get(b->stat, EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER) +
+	               eblob_stat_get(b->stat, EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER), allocator);
 }
 
 static void eblob_stat_summary_json(struct eblob_backend *b, rapidjson::Value &stat, rapidjson::Document::AllocatorType &allocator)

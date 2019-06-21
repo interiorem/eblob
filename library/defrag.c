@@ -141,6 +141,21 @@ int eblob_defrag(struct eblob_backend *b) {
 	return eblob_defrag_in_dir(b, NULL);
 }
 
+
+void eblob_defrag_reset_stats(struct eblob_backend *b)
+{
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_START_TIME, time(NULL));
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_BLOBS_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_ALIVE_DATA_SIZE, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_REMOVED_DATA_SIZE, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER, 0);
+}
+
+
 /*!
  * eblob_defrag() - defrag (blocking call, synchronized)
  * Divides all bctls in backend into ones that need defrag/sort and ones that
@@ -155,10 +170,7 @@ int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir)
 
 	pthread_mutex_lock(&b->defrag_lock);
 
-	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_START_TIME, time(NULL));
-	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER, 0);
-	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER, 0);
-	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER, 0);
+	eblob_defrag_reset_stats(b);
 
 	/* Count approximate number of bases */
 	list_for_each_entry(bctl, &b->bases, base_entry)
