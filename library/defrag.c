@@ -211,6 +211,7 @@ int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir)
 			EBLOB_WARNX(b->cfg.log, EBLOB_LOG_INFO, "defrag: empty blob - removing.");
 
 			pthread_mutex_lock(&b->lock);
+			pthread_rwlock_wrlock(&b->iteration_lock);
 			/* Remove it from list, but do not poisson next and prev */
 			__list_del(bctl->base_entry.prev, bctl->base_entry.next);
 
@@ -221,6 +222,7 @@ int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir)
 			eblob_base_wait_locked(bctl);
 			_eblob_base_ctl_cleanup(bctl);
 			pthread_mutex_unlock(&bctl->lock);
+			pthread_rwlock_unlock(&b->iteration_lock);
 			pthread_mutex_unlock(&b->lock);
 			continue;
 		}

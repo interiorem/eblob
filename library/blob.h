@@ -427,6 +427,7 @@ struct eblob_backend {
 	pthread_mutex_t		sync_lock;
 	pthread_mutex_t		periodic_lock;
 	pthread_mutex_t		inspect_lock;
+	pthread_rwlock_t	iteration_lock;
 
 	pthread_t		defrag_tid;
 	pthread_t		sync_tid;

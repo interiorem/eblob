@@ -1671,6 +1671,7 @@ int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 
 	/* Lock backend */
 	pthread_mutex_lock(&dcfg->b->lock);
+	pthread_rwlock_wrlock(&dcfg->b->iteration_lock);
 	/* Wait for pending writes to finish and lock bctl(s) */
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		eblob_base_wait_locked(dcfg->bctl[n]);
@@ -1734,6 +1735,7 @@ int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 	/* Unlock */
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		pthread_mutex_unlock(&dcfg->bctl[n]->lock);
+	pthread_rwlock_unlock(&dcfg->b->iteration_lock);
 	pthread_mutex_unlock(&dcfg->b->lock);
 
 	eblob_log(dcfg->log, EBLOB_LOG_INFO, "blob: defrag: datasort: success\n");
@@ -1746,6 +1748,7 @@ err_unlock_bctl:
 
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		pthread_mutex_unlock(&dcfg->bctl[n]->lock);
+	pthread_rwlock_unlock(&dcfg->b->iteration_lock);
 	pthread_mutex_unlock(&dcfg->b->lock);
 	datasort_destroy_chunk(dcfg, ds_ctl.result);
 err_rmdir:
@@ -1754,6 +1757,7 @@ err_rmdir:
 	if (ds_ctl.chunks_dir && rmdir(ds_ctl.chunks_dir) == -1)
 		EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, errno, "defrag: rmdir: %s", ds_ctl.chunks_dir);
 err_stop:
+	// TODO: binlog stop should be done under bctl->lock
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		if (eblob_binlog_stop(&dcfg->bctl[n]->binlog) != 0)
 			EBLOB_WARNX(dcfg->log, EBLOB_LOG_ERROR, "defrag: eblob_binlog_stop: FAILED");
