@@ -3409,9 +3409,13 @@ struct eblob_backend *eblob_init(struct eblob_config *c)
 	if (err != 0)
 		goto err_out_periodic_lock_destroy;
 
-	err = eblob_mutex_init(&b->defrag_state_lock);
+	err = pthread_rwlock_init(&b->iteration_lock, NULL);
 	if (err != 0)
 		goto err_out_inspect_lock_destroy;
+
+	err = eblob_mutex_init(&b->defrag_state_lock);
+	if (err != 0)
+		goto err_out_iteration_lock_destroy;
 
 	err = eblob_json_stat_init(b);
 	if (err != 0)
@@ -3459,6 +3463,8 @@ err_out_json_stat_destroy:
 	eblob_json_stat_destroy(b);
 err_out_defrag_state_lock_destroy:
 	pthread_mutex_destroy(&b->defrag_state_lock);
+err_out_iteration_lock_destroy:
+	pthread_rwlock_destroy(&b->iteration_lock);
 err_out_inspect_lock_destroy:
 	pthread_mutex_destroy(&b->inspect_lock);
 err_out_periodic_lock_destroy:
