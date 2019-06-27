@@ -1,3 +1,14 @@
+eblob (0.24.11) unstable; urgency=low
+
+  * make comments consistent with code
+  * add write_prepare_inplace, break eblob_write_prepare_disk into locking and non-locking functions
+  * add tests for binlog
+  * move sanity checks before dereferencing in eblob_write_prepare
+  * remove semicolons in EBLOB_WARNX/WARNC macros
+  * add defrag stats for number touched blobs, size of live/removed data, number of live/removed records
+
+ -- Kirill Smorodinnikov <shaitkir@gmail.com>  Thu, 27 Jun 2019 15:33:12 +0300
+
 eblob (0.24.10) unstable; urgency=low
 
   * remove force argument in eblob_base_setup_base
