@@ -594,10 +594,10 @@ static inline const char *eblob_want_defrag_string(int want_defrag)
 
 /* Logging helpers */
 #define EBLOB_WARNX(log, severity, fmt, ...)	eblob_log(log, severity, \
-		"blob: %s: " fmt "\n", __func__, ## __VA_ARGS__);
+		"blob: %s: " fmt "\n", __func__, ## __VA_ARGS__)
 
 #define EBLOB_WARNC(log, severity, err, fmt, ...)	EBLOB_WARNX(log, severity, \
-		"%s (%d); " fmt, strerror(err), (int)err, ## __VA_ARGS__);
+		"%s (%d); " fmt, strerror(err), (int)err, ## __VA_ARGS__)
 
 char *eblob_dump_dc(const struct eblob_disk_control *dc, char *buffer, size_t size);
 
