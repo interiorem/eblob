@@ -3,6 +3,7 @@
 #include <boost/filesystem.hpp>
 
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
