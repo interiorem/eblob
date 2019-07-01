@@ -31,11 +31,18 @@ add_custom_target(test_defrag
                   COMMAND "${CMAKE_CURRENT_BINARY_DIR}/eblob_defrag_test"
                   DEPENDS ${TESTS_DEPS} eblob_defrag_test)
 
+add_executable(eblob_binlog_test unit/binlog_test.cpp unit/eblob_wrapper.cpp)
+target_link_libraries(eblob_binlog_test eblob ${Boost_LIBRARIES})
+add_custom_target(test_binlog
+                  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/eblob_binlog_test"
+                  DEPENDS ${TESTS_DEPS} eblob_binlog_test)
+
 set(TESTS_LIST
     eblob_stress
     eblob_cpp_test
     eblob_crypto_test
     eblob_defrag_test
+    eblob_binlog_test
     eblob_corruption_test
 )
 set(TESTS_DEPS ${TESTS_LIST})
