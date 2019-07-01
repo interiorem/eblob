@@ -112,7 +112,7 @@ int _eblob_base_ctl_cleanup(struct eblob_base_ctl *ctl)
 
 	eblob_index_blocks_destroy(ctl);
 
-	ctl->data_ctl.size = ctl->data_ctl.offset = 0;
+	ctl->data_ctl.size = 0;
 	ctl->index_ctl.size = 0;
 
 	close(ctl->index_ctl.fd);
@@ -780,9 +780,9 @@ static int eblob_iterate_existing(struct eblob_backend *b, struct eblob_iterate_
 					eblob_base_remove(bctl);
 
 					eblob_log(ctl->log, EBLOB_LOG_INFO, "blob: removing: index: %d, data_fd: %d, index_fd: %d, "
-							"data_size: %llu, data_offset: %llu, have_sort: %d\n",
+							"data_size: %llu, have_sort: %d\n",
 							bctl->index, bctl->data_ctl.fd, bctl->index_ctl.fd,
-							(unsigned long long)bctl->data_ctl.size, (unsigned long long)bctl->data_ctl.offset,
+							(unsigned long long)bctl->data_ctl.size,
 							bctl->index_ctl.sorted);
 
 
@@ -793,9 +793,9 @@ static int eblob_iterate_existing(struct eblob_backend *b, struct eblob_iterate_
 			}
 
 			eblob_log(ctl->log, EBLOB_LOG_INFO, "blob: bctl: index: %d, data_fd: %d, index_fd: %d, "
-					"data_size: %llu, data_offset: %llu, have_sort: %d, err: %d\n",
+					"data_size: %llu, have_sort: %d, err: %d\n",
 					bctl->index, bctl->data_ctl.fd, bctl->index_ctl.fd,
-					(unsigned long long)bctl->data_ctl.size, (unsigned long long)bctl->data_ctl.offset,
+					(unsigned long long)bctl->data_ctl.size,
 					bctl->index_ctl.sorted, err);
 			if (err)
 				goto err_out_bases_cleanup;

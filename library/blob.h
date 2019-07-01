@@ -93,7 +93,7 @@ static const size_t EBLOB_L2HASH_ENTRY_SIZE = sizeof(struct eblob_l2hash_entry);
 struct eblob_file_ctl {
 	int			fd;
 	int			sorted;
-	uint64_t		offset, size;
+	uint64_t		size;
 };
 
 #define EBLOB_INDEX_DEFAULT_BLOCK_SIZE			40

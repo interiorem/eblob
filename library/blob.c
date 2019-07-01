@@ -495,8 +495,7 @@ int eblob_check_record(const struct eblob_base_ctl *bctl,
 	assert(bctl != NULL);
 	assert(bctl->back != NULL);
 
-	const uint64_t bctl_size = bctl->data_ctl.size > bctl->data_ctl.offset ?
-		bctl->data_ctl.size : bctl->data_ctl.offset;
+	const uint64_t bctl_size = bctl->data_ctl.size;
 
 	/*
 	 * Check record itself
@@ -996,7 +995,6 @@ err_out_check:
 	if (!(ctl->flags & EBLOB_ITERATE_FLAGS_ALL)) {
 		pthread_mutex_lock(&bctl->lock);
 
-		bctl->data_ctl.offset = bctl->data_ctl.size;
 		bctl->index_ctl.size = ctl->index_offset;
 
 		/* If we have only internal error */
@@ -1023,13 +1021,13 @@ err_out_check:
 				}
 				eblob_convert_disk_control(&data_dc);
 
-				bctl->data_ctl.offset = idc.position + data_dc.disk_size;
+				bctl->data_ctl.size = idc.position + data_dc.disk_size;
 
 				eblob_log(ctl->log, EBLOB_LOG_ERROR, "blob: i%d: truncating eblob to: data_fd: %d, index_fd: %d, "
-						"data_size(was): %llu, data_offset: %" PRIu64 ", "
+						"data_size(was): %llu, data_size(new): %" PRIu64 ", "
 						"data_position: %" PRIu64 ", disk_size: %" PRIu64 ", index_offset: %llu\n",
 						bctl->index, bctl->data_ctl.fd, bctl->index_ctl.fd, ctl->data_size,
-						bctl->data_ctl.offset, idc.position, idc.disk_size,
+						bctl->data_ctl.size, idc.position, idc.disk_size,
 						ctl->index_offset);
 
 				// err = ftruncate(bctl->index_ctl.fd, ctl->index_offset);
@@ -1764,7 +1762,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 	}
 
 	ctl = list_last_entry(&b->bases, struct eblob_base_ctl, base_entry);
-	if ((ctl->data_ctl.offset >= b->cfg.blob_size) || ctl->index_ctl.sorted ||
+	if ((ctl->data_ctl.size >= b->cfg.blob_size) || ctl->index_ctl.sorted ||
 			(ctl->index_ctl.size / sizeof(struct eblob_disk_control) >= b->cfg.records_in_blob)) {
 		err = eblob_add_new_base(b);
 		if (err)
@@ -1809,7 +1807,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 	wc->on_disk = 0;
 
 	wc->ctl_index_offset = ctl->index_ctl.size;
-	wc->ctl_data_offset = ctl->data_ctl.offset;
+	wc->ctl_data_offset = ctl->data_ctl.size;
 
 	wc->data_offset = wc->ctl_data_offset + sizeof(struct eblob_disk_control) + wc->offset;
 	wc->total_data_size = wc->offset + wc->size;
@@ -1832,7 +1830,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 	if (wc->flags & BLOB_DISK_CTL_APPEND)
 		wc->total_size *= 2;
 
-	ctl->data_ctl.offset += wc->total_size;
+	ctl->data_ctl.size += wc->total_size;
 	ctl->index_ctl.size += sizeof(struct eblob_disk_control);
 
 	/*
@@ -1976,7 +1974,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 	return 0;
 
 err_out_rollback:
-	ctl->data_ctl.offset -= wc->total_size;
+	ctl->data_ctl.size -= wc->total_size;
 	ctl->index_ctl.size -= sizeof(struct eblob_disk_control);
 err_out_exit:
 	eblob_dump_wc(b, key, wc, "eblob_write_prepare_disk_ll: error", err);
