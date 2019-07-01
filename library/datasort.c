@@ -609,7 +609,7 @@ static int datasort_add_view_chunk(struct datasort_ctl *ds_ctl, struct eblob_bas
 	// This is also valid for single pass sorting, as we don't require sorting
 	chunk->need_sort = 0;
 	chunk->base_view = 1;
-	chunk->offset = bctl->data_ctl.offset;
+	chunk->offset = bctl->data_ctl.size;
 	chunk->index_size = index_ctl->size / sizeof(struct eblob_disk_control);
 	chunk->count = chunk->index_size;
 	chunk->index = calloc(chunk->count, sizeof(struct eblob_disk_control));
@@ -1313,8 +1313,6 @@ static int datasort_swap_memory(struct datasort_ctl *ds_ctl)
 	}
 	assert(sorted_bctl->data_ctl.size == ds_ctl->result->offset);
 	assert(sorted_bctl->index_ctl.size == index.size);
-
-	sorted_bctl->data_ctl.offset = sorted_bctl->data_ctl.size;
 
 	/* Populate sorted index blocks */
 	if ((err = eblob_index_blocks_fill(sorted_bctl)) != 0) {
