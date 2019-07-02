@@ -545,6 +545,7 @@ static int datasort_split_iterator(struct eblob_disk_control *dc,
 
 	c->offset += dc->disk_size - hdr_size;
 	c->count++;
+	c->alive_count++;
 	return 0;
 
 err:
@@ -612,6 +613,8 @@ static int datasort_add_view_chunk(struct datasort_ctl *ds_ctl, struct eblob_bas
 	chunk->offset = bctl->data_ctl.size;
 	chunk->index_size = index_ctl->size / sizeof(struct eblob_disk_control);
 	chunk->count = chunk->index_size;
+	chunk->alive_count = eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_TOTAL) -
+	                     eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_REMOVED);
 	chunk->index = calloc(chunk->count, sizeof(struct eblob_disk_control));
 	if (chunk->index == NULL) {
 		err = -errno;
@@ -864,6 +867,7 @@ static struct datasort_chunk *datasort_sort_chunk(struct datasort_ctl *ds_ctl,
 	/* Copy metadata */
 	sorted_chunk->offset = unsorted_chunk->offset;
 	sorted_chunk->count = unsorted_chunk->count;
+	sorted_chunk->alive_count = unsorted_chunk->alive_count;
 
 	/* Move index */
 	assert(unsorted_chunk->index != NULL);
@@ -1022,7 +1026,7 @@ static inline uint64_t datasort_merge_index_size(struct list_head *lst)
 	assert(lst != NULL);
 
 	list_for_each_entry(chunk, lst, list)
-		total += chunk->count;
+		total += chunk->alive_count;
 
 	return total;
 }
@@ -1106,6 +1110,7 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 		merged_chunk->index[total_count] = *dc;
 		merged_chunk->offset += dc->disk_size;
 		merged_chunk->count++;
+		merged_chunk->alive_count++;
 
 		// sync merged_chunk after each 1GB to control number of low priority dirty pages
 		if ((merged_chunk->offset - offset) > (1 << 30)) {
