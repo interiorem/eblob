@@ -1042,7 +1042,7 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 	size_t datasize = 0;               // size of whole data (alive, removed)
 	size_t alive_datasize = 0;          // size of alive data
 	size_t number_records = 0;         // number of all records (alive, removed)
-	size_t number_alive_records = 0;    // number of removed records
+	size_t number_alive_records = 0;    // number of alive records
 
 	assert(ds_ctl != NULL);
 	assert(list_empty(&ds_ctl->sorted_chunks) == 0);
