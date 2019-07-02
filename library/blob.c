@@ -3477,10 +3477,10 @@ err_out_exit_event_destroy:
 	eblob_event_destroy(&b->exit_event);
 err_out_cleanup:
 	eblob_bases_cleanup(b);
-err_out_l2hash_destroy:
-	eblob_l2hash_destroy(&b->l2hash);
 err_out_hash_destroy:
 	eblob_hash_destroy(&b->hash);
+err_out_l2hash_destroy:
+	eblob_l2hash_destroy(&b->l2hash);
 err_out_lock_destroy:
 	pthread_mutex_destroy(&b->lock);
 err_out_lockf:
