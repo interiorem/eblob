@@ -27,6 +27,12 @@ $(find . -name eblob_stress) -m0 -f100 -D0 -I30000 -o2000 -i100 -l4 -r 100 -S100
 $(find . -name eblob_stress) -m0 -f1000 -D0 -I300000 -o20000 -i1000 -l4 -r 1000 -S10 -F6231
 $(find . -name eblob_stress) -m0 -f100 -D0 -I30000 -o2000 -i100 -l4 -r 100 -S100 -F6158
 
+# Big and small stress tests with sorting by position
+$(find . -name eblob_stress) -m0 -f1000 -D0 -I300000 -o20000 -i1000 -l4 -r 1000 -S10 -F12375
+$(find . -name eblob_stress) -m0 -f100 -D0 -I30000 -o2000 -i100 -l4 -r 100 -S100 -F12302
+$(find . -name eblob_stress) -m0 -f1000 -D0 -I300000 -o20000 -i1000 -l4 -r 1000 -S10 -F14423
+$(find . -name eblob_stress) -m0 -f100 -D0 -I30000 -o2000 -i100 -l4 -r 100 -S100 -F14350
+
 # Use specific datasort_dir for sorting chunks
 $(find . -name eblob_stress) -m0 -f1000 -D0 -I300000 -o20000 -i1000 -l4 -r 1000 -S10 -F2263 -P 1
 

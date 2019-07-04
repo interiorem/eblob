@@ -749,6 +749,9 @@ static int datasort_split(struct datasort_ctl *ds_ctl)
 		ictl.iterator_cb.iterator_init = datasort_split_iterator_init;
 		ictl.iterator_cb.iterator_free = datasort_split_iterator_free;
 
+		if (dcfg->b->cfg.blob_flags & EBLOB_SORT_BY_POS)
+			ictl.flags |= EBLOB_ITERATE_FLAGS_BY_POSITION;
+
 		EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO, "defrag: split: start, name: %s",
 				ictl.base->name);
 
