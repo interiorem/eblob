@@ -826,6 +826,11 @@ int eblob_iterate(struct eblob_backend *b, struct eblob_iterate_control *ctl)
 	if (b == NULL || ctl == NULL)
 		return -EINVAL;
 
+	// Note: init loading changes bases list and it breaks iteration_lock meaning.
+ 	// Use eblob_load_data for init loading instead.
+ 	if (ctl->flags & EBLOB_ITERATE_FLAGS_INITIAL_LOAD)
+ 		return -EINVAL;
+
 	int err = pthread_rwlock_tryrdlock(&b->iteration_lock);
 	if (err)
 		return -err;
