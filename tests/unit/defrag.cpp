@@ -51,6 +51,9 @@ public:
 	bool expect_blob_sorted;
 	size_t number_checked = 0;
 	size_t prev_offset = 0;
+
+	bool check_dc_positions = false;
+	int last_dc_position = 0;
 };
 
 
@@ -78,6 +81,11 @@ int iterate_callback(struct eblob_disk_control *dc,
 	BOOST_REQUIRE(!item.checked); //  item already checked
 	BOOST_REQUIRE_EQUAL(dc->data_size, item.value.size());  // sizes mismatch
 
+	if (ipriv.check_dc_positions) {
+		BOOST_REQUIRE_LE(ipriv.last_dc_position, dc->position);
+		ipriv.last_dc_position = dc->position;
+	}
+
 	std::vector<char> data(dc->data_size);
 	int ret = __eblob_read_ll(fd, data.data(), dc->data_size, data_offset);
 	BOOST_REQUIRE_EQUAL(ret, 0);  // can't read data
@@ -88,12 +96,47 @@ int iterate_callback(struct eblob_disk_control *dc,
 	return 0;
 }
 
-void check_view_usage(eblob_wrapper &wrapper, size_t sorted_blob_number, size_t unsorted_blob_number) {
+
+struct bases_stats {
+	size_t number_blobs = 0;
+	size_t size_alive_data = 0;
+	size_t size_removed_data = 0;
+	size_t number_alive_records = 0;
+	size_t number_removed_records = 0;
+};
+
+
+bases_stats calculate_bases_stats_by_bases(eblob_base_ctl **bctls, size_t bctl_cnt) {
+	bases_stats stats;
+	stats.number_blobs = bctl_cnt;
+	for (size_t index = 0; index != bctl_cnt; ++index) {
+		eblob_base_ctl *bctl = bctls[index];
+		size_t number_records = eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_TOTAL);
+		size_t removed_records = eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_REMOVED);
+		stats.number_alive_records += number_records - removed_records;
+		stats.number_removed_records += removed_records;
+		size_t datasize = eblob_stat_get(bctl->stat, EBLOB_LST_BASE_SIZE);
+		size_t removed_datasize = eblob_stat_get(bctl->stat, EBLOB_LST_REMOVED_SIZE);
+		stats.size_alive_data += datasize - removed_datasize;
+		stats.size_removed_data += removed_datasize;
+	}
+
+	return stats;
+}
+
+void check_defrag_stats(eblob_wrapper &wrapper, size_t sorted_blob_number,
+                        size_t unsorted_blob_number, bases_stats &stats) {
 	auto total_blob_number = sorted_blob_number + unsorted_blob_number;
 	auto &cfg = wrapper.get()->cfg;
-	auto view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER);
-	auto sorted_view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER);
-	auto sp_view_used = eblob_stat_get(wrapper.get()->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER);
+	eblob_stat *stat = wrapper.get()->stat;
+	int view_used = eblob_stat_get(stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER);
+	int sorted_view_used = eblob_stat_get(stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER);
+	int sp_view_used = eblob_stat_get(stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER);
+	size_t number_touched_blobs = eblob_stat_get(stat, EBLOB_GST_DATASORT_BLOBS_NUMBER);
+	size_t size_alive_data = eblob_stat_get(stat, EBLOB_GST_DATASORT_ALIVE_DATA_SIZE);
+	size_t size_removed_data = eblob_stat_get(stat, EBLOB_GST_DATASORT_REMOVED_DATA_SIZE);
+	size_t number_alive_records = eblob_stat_get(stat, EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER);
+	size_t number_removed_records = eblob_stat_get(stat, EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER);
 
 	if (!(cfg.blob_flags & EBLOB_USE_VIEWS)) {
 		BOOST_REQUIRE_EQUAL(view_used, 0);
@@ -111,6 +154,11 @@ void check_view_usage(eblob_wrapper &wrapper, size_t sorted_blob_number, size_t 
 		BOOST_FAIL("unsupported single_pass_file_size_threshold param in test");
 	}
 
+	BOOST_REQUIRE_EQUAL(number_touched_blobs, stats.number_blobs);
+	BOOST_REQUIRE_EQUAL(size_alive_data, stats.size_alive_data);
+	BOOST_REQUIRE_EQUAL(size_removed_data, stats.size_removed_data);
+	BOOST_REQUIRE_EQUAL(number_alive_records, stats.number_alive_records);
+	BOOST_REQUIRE_EQUAL(number_removed_records, stats.number_removed_records);
 }
 
 int datasort(eblob_wrapper &wrapper, const std::set<size_t> &indexes) {
@@ -150,21 +198,20 @@ int datasort(eblob_wrapper &wrapper, const std::set<size_t> &indexes) {
 	dcfg.bctl = bctls.data();
 	dcfg.bctl_cnt = bctls.size();
 
-	// reset stats to get values based only on this defrag
-	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER, 0);
-	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER, 0);
-	eblob_stat_set(wrapper.get()->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER, 0);
-
+	bases_stats stats = calculate_bases_stats_by_bases(dcfg.bctl, dcfg.bctl_cnt);
 	// run defrag on selected blobs
+	eblob_defrag_reset_stats(dcfg.b);
 	auto result = eblob_generate_sorted_data(&dcfg);
 
 	// check from stats that views were used appropriate number of times
-	check_view_usage(wrapper, sorted_count, unsorted_count);
+	check_defrag_stats(wrapper, sorted_count, unsorted_count, stats);
 	return result;
 }
 
 
-int iterate(eblob_wrapper &wrapper, iterator_private &priv) {
+int iterate(eblob_wrapper &wrapper,
+            iterator_private &priv,
+            int iterate_flags = EBLOB_ITERATE_FLAGS_ALL | EBLOB_ITERATE_FLAGS_READONLY) {
 	eblob_iterate_callbacks callbacks;
 	memset(&callbacks, 0, sizeof(callbacks));
 	callbacks.iterator = iterate_callback;
@@ -173,7 +220,7 @@ int iterate(eblob_wrapper &wrapper, iterator_private &priv) {
 	memset(&ictl, 0, sizeof(struct eblob_iterate_control));
 	ictl.b = wrapper.get();
 	ictl.log = ictl.b->cfg.log;
-	ictl.flags = EBLOB_ITERATE_FLAGS_ALL | EBLOB_ITERATE_FLAGS_READONLY;
+	ictl.flags = iterate_flags;
 	ictl.iterator_cb = callbacks;
 	ictl.priv = &priv;
 	return eblob_iterate(wrapper.get(), &ictl);
@@ -212,6 +259,11 @@ void run_with_different_modes(std::function<void(const eblob_config &)> runnable
 	BOOST_TEST_CHECKPOINT("running with views disabled");
 	cw.reset_dirs();
 	cw.config.blob_flags = EBLOB_L2HASH | EBLOB_DISABLE_THREADS;
+	runnable(cw.config);
+
+	BOOST_TEST_CHECKPOINT("running with chunk splitting by position");
+	cw.reset_dirs();
+	cw.config.blob_flags = EBLOB_L2HASH | EBLOB_DISABLE_THREADS | EBLOB_SORT_BY_POS;
 	runnable(cw.config);
 }
 
@@ -565,4 +617,24 @@ BOOST_AUTO_TEST_CASE(test_defrag_in_dir) {
 
 	// check that defrag succeeded
 	BOOST_REQUIRE_EQUAL(eblob_stat_get(backend->stat, EBLOB_GST_DATASORT_COMPLETION_STATUS), 0);
+}
+
+
+BOOST_AUTO_TEST_CASE(test_defrag_by_position) {
+	const size_t TOTAL_RECORDS = 10;
+	eblob_config_test_wrapper config_wrapper(true, EBLOB_LOG_INFO);
+	config_wrapper.config.records_in_blob = TOTAL_RECORDS;
+	config_wrapper.config.blob_flags |= EBLOB_ITERATE_FLAGS_BY_POSITION;
+
+	eblob_wrapper wrapper(config_wrapper.config);
+	std::vector<item_t> shadow_elems;
+	auto generator = make_uniform_item_generator(wrapper, 10, 10);
+	fill_eblob(wrapper, shadow_elems, generator, TOTAL_RECORDS);
+
+	eblob_base_ctl *first_bctl = container_of(wrapper.get()->bases.next, eblob_base_ctl, base_entry);
+	BOOST_REQUIRE_EQUAL(eblob_generate_sorted_index(wrapper.get(), first_bctl), 0);
+	iterator_private priv(shadow_elems, false);
+	priv.check_dc_positions = true;
+	int flags = EBLOB_ITERATE_FLAGS_ALL | EBLOB_ITERATE_FLAGS_READONLY | EBLOB_ITERATE_FLAGS_BY_POSITION;
+	BOOST_REQUIRE_EQUAL(iterate(wrapper, priv, flags), 0);
 }

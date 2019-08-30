@@ -315,6 +315,11 @@ static inline void eblob_convert_disk_control(struct eblob_disk_control *ctl)
  */
 #define EBLOB_USE_VIEWS			(1<<12)
 
+/*
+ * Enable chunk splitting by position in a blob while defrag
+ */
+#define EBLOB_SORT_BY_POS			(1<<13)
+
 
 struct eblob_config {
 	/* blob flags above */
@@ -494,6 +499,7 @@ struct eblob_iterate_callbacks {
 #define EBLOB_ITERATE_FLAGS_READONLY		(1<<1)	/* do not modify entries while iterating a blob */
 #define EBLOB_ITERATE_FLAGS_INITIAL_LOAD	(1<<2)	/* set on initial load */
 #define EBLOB_ITERATE_FLAGS_VERIFY_CHECKSUM	(1<<3)	/* verify checksum for entries while iterating a blob */
+#define EBLOB_ITERATE_FLAGS_BY_POSITION	(1<<4)	/* iterate over entries in ascending order by position */
 
 /**
  * Structure which controls which keys should be iterated over.
@@ -750,6 +756,11 @@ enum eblob_stat_global_flavour {
 	EBLOB_GST_DATASORT_VIEW_USED_NUMBER,
 	EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER,
 	EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER,
+	EBLOB_GST_DATASORT_BLOBS_NUMBER,
+	EBLOB_GST_DATASORT_ALIVE_DATA_SIZE,
+	EBLOB_GST_DATASORT_REMOVED_DATA_SIZE,
+	EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER,
+	EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER,
 	EBLOB_GST_MAX,
 };
 
@@ -793,6 +804,7 @@ int eblob_defrag(struct eblob_backend *b);
 int eblob_periodic(struct eblob_backend *b);
 int eblob_inspect(struct eblob_backend *b);
 
+void eblob_defrag_reset_stats(struct eblob_backend *b);
 int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir);
 
 enum eblob_inspect_state {
@@ -865,7 +877,7 @@ static inline const char *eblob_dump_dctl_flags(uint64_t flags) {
 }
 
 static inline const char *eblob_dump_blob_flags(unsigned int flags) {
-	static __thread char buffer[256];
+	static __thread char buffer[512];
 	static struct eblob_flag_info infos[] = {
 		{ EBLOB_RESERVE_10_PERCENTS,		"reserve_10_percents"},
 		{ EBLOB_OVERWRITE_COMMITS,		"overwrite_commits"},
@@ -879,6 +891,7 @@ static inline const char *eblob_dump_blob_flags(unsigned int flags) {
 		{ EBLOB_DISABLE_THREADS,		"disabled_threads"},
 		{ EBLOB_AUTO_INDEXSORT,			"auto_indexsort"},
 		{ EBLOB_USE_VIEWS,			"use_views"},
+		{ EBLOB_SORT_BY_POS,			"sort_by_pos"},
 	};
 
 	eblob_dump_flags_raw(buffer, sizeof(buffer), flags, infos, sizeof(infos) / sizeof(infos[0]));

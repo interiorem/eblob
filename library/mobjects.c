@@ -112,7 +112,7 @@ int _eblob_base_ctl_cleanup(struct eblob_base_ctl *ctl)
 
 	eblob_index_blocks_destroy(ctl);
 
-	ctl->data_ctl.size = ctl->data_ctl.offset = 0;
+	ctl->data_ctl.size = 0;
 	ctl->index_ctl.size = 0;
 
 	close(ctl->index_ctl.fd);
@@ -760,6 +760,7 @@ static int eblob_iterate_existing(struct eblob_backend *b, struct eblob_iterate_
 	ctl->log = b->cfg.log;
 	ctl->b = b;
 
+	// TODO: move initial load routines to another function
 	if (ctl->flags & EBLOB_ITERATE_FLAGS_INITIAL_LOAD) {
 		err = eblob_scan_base(b);
 		if (err) {
@@ -789,6 +790,8 @@ static int eblob_iterate_existing(struct eblob_backend *b, struct eblob_iterate_
 				if (want == EBLOB_REMOVE_NEEDED) {
 					/*
 					 * This is racey if removed at runtime, so only valid at initial load
+					 * NB! Here we change bases list under read iteration_lock. That's ok
+					 * because we are in initial load.
 					 */
 					pthread_mutex_lock(&b->lock);
 					list_del_init(&bctl->base_entry);
@@ -797,9 +800,9 @@ static int eblob_iterate_existing(struct eblob_backend *b, struct eblob_iterate_
 					eblob_base_remove(bctl);
 
 					eblob_log(ctl->log, EBLOB_LOG_INFO, "blob: removing: index: %d, data_fd: %d, index_fd: %d, "
-							"data_size: %llu, data_offset: %llu, have_sort: %d\n",
+							"data_size: %llu, have_sort: %d\n",
 							bctl->index, bctl->data_ctl.fd, bctl->index_ctl.fd,
-							(unsigned long long)bctl->data_ctl.size, (unsigned long long)bctl->data_ctl.offset,
+							(unsigned long long)bctl->data_ctl.size,
 							bctl->index_ctl.sorted);
 
 
@@ -810,9 +813,9 @@ static int eblob_iterate_existing(struct eblob_backend *b, struct eblob_iterate_
 			}
 
 			eblob_log(ctl->log, EBLOB_LOG_INFO, "blob: bctl: index: %d, data_fd: %d, index_fd: %d, "
-					"data_size: %llu, data_offset: %llu, have_sort: %d, err: %d\n",
+					"data_size: %llu, have_sort: %d, err: %d\n",
 					bctl->index, bctl->data_ctl.fd, bctl->index_ctl.fd,
-					(unsigned long long)bctl->data_ctl.size, (unsigned long long)bctl->data_ctl.offset,
+					(unsigned long long)bctl->data_ctl.size,
 					bctl->index_ctl.sorted, err);
 			if (err)
 				goto err_out_bases_cleanup;
@@ -837,7 +840,21 @@ err_out_exit:
 
 int eblob_iterate(struct eblob_backend *b, struct eblob_iterate_control *ctl)
 {
-	return eblob_iterate_existing(b, ctl);
+	if (b == NULL || ctl == NULL)
+		return -EINVAL;
+
+	// Note: init loading changes bases list and it breaks iteration_lock meaning.
+ 	// Use eblob_load_data for init loading instead.
+ 	if (ctl->flags & EBLOB_ITERATE_FLAGS_INITIAL_LOAD)
+ 		return -EINVAL;
+
+	int err = pthread_rwlock_tryrdlock(&b->iteration_lock);
+	if (err)
+		return -err;
+
+	err = eblob_iterate_existing(b, ctl);
+	pthread_rwlock_unlock(&b->iteration_lock);
+	return err;
 }
 
 int eblob_load_data(struct eblob_backend *b)

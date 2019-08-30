@@ -659,7 +659,14 @@ static void test_iteration(struct test_cfg *cfg, struct eblob_config *bcfg, stru
 	}
 
 	warnx("iterating %lld keys: started", ipriv.shadow_count);
-	error = eblob_iterate(cfg->b, &eictl);
+	while ((error = eblob_iterate(cfg->b, &eictl))) {
+		if (error != -EBUSY)
+			break;
+
+		warnx("bases list is busy right now, wait...");
+		sleep(1);
+	}
+
 	if (error)
 		errx(EX_SOFTWARE, "iterating keys: failed: %d", error);
 

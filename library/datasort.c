@@ -545,6 +545,7 @@ static int datasort_split_iterator(struct eblob_disk_control *dc,
 
 	c->offset += dc->disk_size - hdr_size;
 	c->count++;
+	c->alive_count++;
 	return 0;
 
 err:
@@ -609,9 +610,11 @@ static int datasort_add_view_chunk(struct datasort_ctl *ds_ctl, struct eblob_bas
 	// This is also valid for single pass sorting, as we don't require sorting
 	chunk->need_sort = 0;
 	chunk->base_view = 1;
-	chunk->offset = bctl->data_ctl.offset;
+	chunk->offset = bctl->data_ctl.size;
 	chunk->index_size = index_ctl->size / sizeof(struct eblob_disk_control);
 	chunk->count = chunk->index_size;
+	chunk->alive_count = eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_TOTAL) -
+	                     eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_REMOVED);
 	chunk->index = calloc(chunk->count, sizeof(struct eblob_disk_control));
 	if (chunk->index == NULL) {
 		err = -errno;
@@ -746,6 +749,9 @@ static int datasort_split(struct datasort_ctl *ds_ctl)
 		ictl.iterator_cb.iterator_init = datasort_split_iterator_init;
 		ictl.iterator_cb.iterator_free = datasort_split_iterator_free;
 
+		if (dcfg->b->cfg.blob_flags & EBLOB_SORT_BY_POS)
+			ictl.flags |= EBLOB_ITERATE_FLAGS_BY_POSITION;
+
 		EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO, "defrag: split: start, name: %s",
 				ictl.base->name);
 
@@ -864,6 +870,7 @@ static struct datasort_chunk *datasort_sort_chunk(struct datasort_ctl *ds_ctl,
 	/* Copy metadata */
 	sorted_chunk->offset = unsorted_chunk->offset;
 	sorted_chunk->count = unsorted_chunk->count;
+	sorted_chunk->alive_count = unsorted_chunk->alive_count;
 
 	/* Move index */
 	assert(unsorted_chunk->index != NULL);
@@ -1022,7 +1029,7 @@ static inline uint64_t datasort_merge_index_size(struct list_head *lst)
 	assert(lst != NULL);
 
 	list_for_each_entry(chunk, lst, list)
-		total += chunk->count;
+		total += chunk->alive_count;
 
 	return total;
 }
@@ -1039,6 +1046,10 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 	uint64_t total_items = 0;
 	uint64_t offset = 0;
 	int err = 0;
+	size_t datasize = 0;               // size of whole data (alive, removed)
+	size_t alive_datasize = 0;          // size of alive data
+	size_t number_records = 0;         // number of all records (alive, removed)
+	size_t number_alive_records = 0;    // number of alive records
 
 	assert(ds_ctl != NULL);
 	assert(list_empty(&ds_ctl->sorted_chunks) == 0);
@@ -1049,6 +1060,13 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 	assert(dcfg != NULL);
 
 	EBLOB_WARNX(dcfg->log, EBLOB_LOG_INFO, "defrag: merge: start");
+
+	/* Calculate size of data and number of records */
+	for (int index = 0; index != dcfg->bctl_cnt; ++index) {
+		struct eblob_base_ctl *bctl = dcfg->bctl[index];
+		datasize += eblob_stat_get(bctl->stat, EBLOB_LST_BASE_SIZE);
+		number_records += eblob_stat_get(bctl->stat, EBLOB_LST_RECORDS_TOTAL);
+	}
 
 	/* Create resulting chunk */
 	merged_chunk = datasort_add_chunk(dcfg, ds_ctl->dir);
@@ -1078,6 +1096,9 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 		current_count = chunk->merge_count - 1;
 		dc = &chunk->index[current_count];
 
+		alive_datasize += dc->disk_size + sizeof(struct eblob_disk_control);
+		++number_alive_records;
+
 		err = datasort_copy_record(dcfg, chunk, merged_chunk, dc, merged_chunk->offset);
 		if (err != 0) {
 			EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, -err,
@@ -1092,6 +1113,7 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 		merged_chunk->index[total_count] = *dc;
 		merged_chunk->offset += dc->disk_size;
 		merged_chunk->count++;
+		merged_chunk->alive_count++;
 
 		// sync merged_chunk after each 1GB to control number of low priority dirty pages
 		if ((merged_chunk->offset - offset) > (1 << 30)) {
@@ -1106,6 +1128,13 @@ static struct datasort_chunk *datasort_merge(struct datasort_ctl *ds_ctl)
 			merged_chunk->fd, merged_chunk->count, merged_chunk->offset, merged_chunk->path);
 
 	datasort_destroy_chunks(dcfg, &ds_ctl->sorted_chunks);
+
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_ALIVE_DATA_SIZE, alive_datasize);
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_REMOVED_DATA_SIZE, datasize - alive_datasize);
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER, number_alive_records);
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER,
+	               number_records - number_alive_records);
+
 	return merged_chunk;
 
 err:
@@ -1293,8 +1322,6 @@ static int datasort_swap_memory(struct datasort_ctl *ds_ctl)
 	}
 	assert(sorted_bctl->data_ctl.size == ds_ctl->result->offset);
 	assert(sorted_bctl->index_ctl.size == index.size);
-
-	sorted_bctl->data_ctl.offset = sorted_bctl->data_ctl.size;
 
 	/* Populate sorted index blocks */
 	if ((err = eblob_index_blocks_fill(sorted_bctl)) != 0) {
@@ -1545,6 +1572,7 @@ int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 		if (dcfg->bctl[n] == NULL)
 			return -EINVAL;
 
+	eblob_stat_add(dcfg->b->stat, EBLOB_GST_DATASORT_BLOBS_NUMBER, dcfg->bctl_cnt);
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		EBLOB_WARNX(dcfg->log, EBLOB_LOG_NOTICE, "defrag: sorting: %s", dcfg->bctl[n]->name);
 
@@ -1649,6 +1677,7 @@ int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 
 	/* Lock backend */
 	pthread_mutex_lock(&dcfg->b->lock);
+	pthread_rwlock_wrlock(&dcfg->b->iteration_lock);
 	/* Wait for pending writes to finish and lock bctl(s) */
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		eblob_base_wait_locked(dcfg->bctl[n]);
@@ -1712,6 +1741,7 @@ int eblob_generate_sorted_data(struct datasort_cfg *dcfg)
 	/* Unlock */
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		pthread_mutex_unlock(&dcfg->bctl[n]->lock);
+	pthread_rwlock_unlock(&dcfg->b->iteration_lock);
 	pthread_mutex_unlock(&dcfg->b->lock);
 
 	eblob_log(dcfg->log, EBLOB_LOG_INFO, "blob: defrag: datasort: success\n");
@@ -1724,6 +1754,7 @@ err_unlock_bctl:
 
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		pthread_mutex_unlock(&dcfg->bctl[n]->lock);
+	pthread_rwlock_unlock(&dcfg->b->iteration_lock);
 	pthread_mutex_unlock(&dcfg->b->lock);
 	datasort_destroy_chunk(dcfg, ds_ctl.result);
 err_rmdir:
@@ -1732,6 +1763,7 @@ err_rmdir:
 	if (ds_ctl.chunks_dir && rmdir(ds_ctl.chunks_dir) == -1)
 		EBLOB_WARNC(dcfg->log, EBLOB_LOG_ERROR, errno, "defrag: rmdir: %s", ds_ctl.chunks_dir);
 err_stop:
+	// TODO: binlog stop should be done under bctl->lock
 	for (n = 0; n < dcfg->bctl_cnt; ++n)
 		if (eblob_binlog_stop(&dcfg->bctl[n]->binlog) != 0)
 			EBLOB_WARNX(dcfg->log, EBLOB_LOG_ERROR, "defrag: eblob_binlog_stop: FAILED");

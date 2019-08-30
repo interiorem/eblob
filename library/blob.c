@@ -495,8 +495,7 @@ int eblob_check_record(const struct eblob_base_ctl *bctl,
 	assert(bctl != NULL);
 	assert(bctl->back != NULL);
 
-	const uint64_t bctl_size = bctl->data_ctl.size > bctl->data_ctl.offset ?
-		bctl->data_ctl.size : bctl->data_ctl.offset;
+	const uint64_t bctl_size = bctl->data_ctl.size;
 
 	/*
 	 * Check record itself
@@ -867,10 +866,6 @@ static int eblob_blob_iterator(struct eblob_iterate_priv *iter_priv)
 	int err = 0;
 	int current_range_index = -1;
 
-	/*
-	 * TODO: We should probably use unsorted index because order of records
-	 * in it is identical to order of records in data blob.
-	 */
 	static const int hdr_size = sizeof(struct eblob_disk_control);
 
 	memset(&loc, 0, sizeof(loc));
@@ -996,7 +991,6 @@ err_out_check:
 	if (!(ctl->flags & EBLOB_ITERATE_FLAGS_ALL)) {
 		pthread_mutex_lock(&bctl->lock);
 
-		bctl->data_ctl.offset = bctl->data_ctl.size;
 		bctl->index_ctl.size = ctl->index_offset;
 
 		/* If we have only internal error */
@@ -1023,13 +1017,13 @@ err_out_check:
 				}
 				eblob_convert_disk_control(&data_dc);
 
-				bctl->data_ctl.offset = idc.position + data_dc.disk_size;
+				bctl->data_ctl.size = idc.position + data_dc.disk_size;
 
 				eblob_log(ctl->log, EBLOB_LOG_ERROR, "blob: i%d: truncating eblob to: data_fd: %d, index_fd: %d, "
-						"data_size(was): %llu, data_offset: %" PRIu64 ", "
+						"data_size(was): %llu, data_size(new): %" PRIu64 ", "
 						"data_position: %" PRIu64 ", disk_size: %" PRIu64 ", index_offset: %llu\n",
 						bctl->index, bctl->data_ctl.fd, bctl->index_ctl.fd, ctl->data_size,
-						bctl->data_ctl.offset, idc.position, idc.disk_size,
+						bctl->data_ctl.size, idc.position, idc.disk_size,
 						ctl->index_offset);
 
 				// err = ftruncate(bctl->index_ctl.fd, ctl->index_offset);
@@ -1056,6 +1050,78 @@ err_out_check:
 
 	return err;
 }
+
+
+/**
+ * eblob_disk_control_cmp_by_position() - compares dc's by position in a blob file
+ */
+static int eblob_disk_control_cmp_by_position(const void *lhs, const void *rhs) {
+	const struct eblob_disk_control *left = (const struct eblob_disk_control *)lhs;
+	const struct eblob_disk_control *right = (const struct eblob_disk_control *)rhs;
+	if (left->position < right->position) {
+		return -1;
+	} else if (left->position > right->position) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
+/**
+ * eblob_blob_iterate_by_pos() - read whole index, sort it by position and run iteration over it.
+ */
+static int eblob_blob_iterate_by_pos(struct eblob_iterate_priv *iter_priv)
+{
+	struct eblob_iterate_control *ctl;
+	struct eblob_base_ctl *bctl;
+
+	struct eblob_iterate_local loc;
+	int err = 0;
+
+	static const int hdr_size = sizeof(struct eblob_disk_control);
+
+	if (iter_priv == NULL) {
+		err = -EINVAL;
+		return err;
+	}
+
+	ctl = iter_priv->ctl;
+	bctl = ctl->base;
+
+	memset(&loc, 0, sizeof(loc));
+
+	loc.iter_priv = iter_priv;
+	loc.index_offset = 0;
+	loc.pos = 0;
+	loc.num = bctl->index_ctl.size / hdr_size;
+
+	loc.dc = calloc(loc.num, hdr_size);
+
+	pthread_mutex_lock(&bctl->lock);
+	err = __eblob_read_ll(bctl->index_ctl.fd, loc.dc, loc.num * hdr_size, 0);
+	pthread_mutex_unlock(&bctl->lock);
+	if (err) {
+		goto err_out_check;
+	}
+
+	qsort(loc.dc, loc.num, hdr_size, eblob_disk_control_cmp_by_position);
+
+	eblob_bctl_hold(bctl);
+	err = eblob_check_disk(&loc);
+	eblob_bctl_release(bctl);
+
+err_out_check:
+	free(loc.dc);
+	eblob_log(ctl->log, err < 0 ? EBLOB_LOG_ERROR : EBLOB_LOG_INFO, "blob-0.%d: iterated: data_fd: %d, index_fd: %d, "
+									"data_size: %llu, index_offset: %llu, err: %d\n",
+		  bctl->index, bctl->data_ctl.fd, bctl->index_ctl.fd, ctl->data_size, ctl->index_offset, err);
+
+	if (ctl->err == 0 && err != 0)
+		ctl->err = err;
+
+	return err;
+}
+
 
 /**
  * eblob_blob_iterate() - eblob forward iterator.
@@ -1099,7 +1165,16 @@ int eblob_blob_iterate(struct eblob_iterate_control *ctl)
 		}
 	}
 
-	err = eblob_blob_iterator(&iter_priv);
+	if (!(ctl->flags & EBLOB_ITERATE_FLAGS_BY_POSITION)) {
+		err = eblob_blob_iterator(&iter_priv);
+	} else {
+		if ((ctl->flags & EBLOB_ITERATE_FLAGS_ALL) && (ctl->flags & EBLOB_ITERATE_FLAGS_READONLY)) {
+			err = eblob_blob_iterate_by_pos(&iter_priv);
+		} else {
+			err = -EINVAL;
+		}
+	}
+
 	if (err) {
 		ctl->err = err;
 		eblob_log(ctl->log, EBLOB_LOG_ERROR, "blob: iterator failed: %d.\n", err);
@@ -1744,6 +1819,8 @@ static int eblob_check_free_space(struct eblob_backend *b, uint64_t size)
 /*!
  * Low-level counterpart for \fn eblob_write_prepare_disk()
  * NB! Caller should hold "backend" lock.
+ *
+ * TODO: we don't set data_ctl.size on close. it's bad, fix it later
  */
 static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key *key,
 		struct eblob_write_control *wc, uint64_t prepare_disk_size,
@@ -1762,7 +1839,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 	}
 
 	ctl = list_last_entry(&b->bases, struct eblob_base_ctl, base_entry);
-	if ((ctl->data_ctl.offset >= b->cfg.blob_size) || ctl->index_ctl.sorted ||
+	if ((ctl->data_ctl.size >= b->cfg.blob_size) || ctl->index_ctl.sorted ||
 			(ctl->index_ctl.size / sizeof(struct eblob_disk_control) >= b->cfg.records_in_blob)) {
 		err = eblob_add_new_base(b);
 		if (err)
@@ -1807,7 +1884,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 	wc->on_disk = 0;
 
 	wc->ctl_index_offset = ctl->index_ctl.size;
-	wc->ctl_data_offset = ctl->data_ctl.offset;
+	wc->ctl_data_offset = ctl->data_ctl.size;
 
 	wc->data_offset = wc->ctl_data_offset + sizeof(struct eblob_disk_control) + wc->offset;
 	wc->total_data_size = wc->offset + wc->size;
@@ -1830,7 +1907,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 	if (wc->flags & BLOB_DISK_CTL_APPEND)
 		wc->total_size *= 2;
 
-	ctl->data_ctl.offset += wc->total_size;
+	ctl->data_ctl.size += wc->total_size;
 	ctl->index_ctl.size += sizeof(struct eblob_disk_control);
 
 	/*
@@ -1974,7 +2051,7 @@ static int eblob_write_prepare_disk_ll(struct eblob_backend *b, struct eblob_key
 	return 0;
 
 err_out_rollback:
-	ctl->data_ctl.offset -= wc->total_size;
+	ctl->data_ctl.size -= wc->total_size;
 	ctl->index_ctl.size -= sizeof(struct eblob_disk_control);
 err_out_exit:
 	eblob_dump_wc(b, key, wc, "eblob_write_prepare_disk_ll: error", err);
@@ -3411,9 +3488,13 @@ struct eblob_backend *eblob_init(struct eblob_config *c)
 	if (err != 0)
 		goto err_out_periodic_lock_destroy;
 
-	err = eblob_mutex_init(&b->defrag_state_lock);
+	err = pthread_rwlock_init(&b->iteration_lock, NULL);
 	if (err != 0)
 		goto err_out_inspect_lock_destroy;
+
+	err = eblob_mutex_init(&b->defrag_state_lock);
+	if (err != 0)
+		goto err_out_iteration_lock_destroy;
 
 	err = eblob_json_stat_init(b);
 	if (err != 0)
@@ -3461,6 +3542,8 @@ err_out_json_stat_destroy:
 	eblob_json_stat_destroy(b);
 err_out_defrag_state_lock_destroy:
 	pthread_mutex_destroy(&b->defrag_state_lock);
+err_out_iteration_lock_destroy:
+	pthread_rwlock_destroy(&b->iteration_lock);
 err_out_inspect_lock_destroy:
 	pthread_mutex_destroy(&b->inspect_lock);
 err_out_periodic_lock_destroy:
@@ -3473,10 +3556,10 @@ err_out_exit_event_destroy:
 	eblob_event_destroy(&b->exit_event);
 err_out_cleanup:
 	eblob_bases_cleanup(b);
-err_out_l2hash_destroy:
-	eblob_l2hash_destroy(&b->l2hash);
 err_out_hash_destroy:
 	eblob_hash_destroy(&b->hash);
+err_out_l2hash_destroy:
+	eblob_l2hash_destroy(&b->l2hash);
 err_out_lock_destroy:
 	pthread_mutex_destroy(&b->lock);
 err_out_lockf:

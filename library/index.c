@@ -831,7 +831,6 @@ int eblob_generate_sorted_index(struct eblob_backend *b, struct eblob_base_ctl *
 	}
 
 	bctl->index_ctl.fd = fd;
-	bctl->index_ctl.offset = 0;
 	bctl->index_ctl.size = index_size;
 
 	err = eblob_index_blocks_fill(bctl);
@@ -870,7 +869,7 @@ int eblob_generate_sorted_index(struct eblob_backend *b, struct eblob_base_ctl *
 
 	eblob_log(b->cfg.log, EBLOB_LOG_INFO, "defrag: indexsort: generated sorted: index: %d, "
 			"index-size: %llu, data-size: %" PRIu64 ", file: %s\n",
-			bctl->index, (unsigned long long)index_size, bctl->data_ctl.offset, dst_file);
+			bctl->index, (unsigned long long)index_size, bctl->data_ctl.size, dst_file);
 
 	free(sorted_index);
 	free(file);

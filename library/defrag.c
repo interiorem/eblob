@@ -73,9 +73,9 @@ int eblob_want_defrag(struct eblob_base_ctl *bctl)
 	size = eblob_stat_get(bctl->stat, EBLOB_LST_BASE_SIZE);
 	pthread_mutex_unlock(&bctl->lock);
 
-	/* Sanity: Do not remove seem-to-be empty blob if offsets are non-zero */
+	/* Sanity: Do not remove seem-to-be empty blob if sizes are non-zero */
 	if (((removed == 0) && (total == 0)) &&
-	    ((bctl->data_ctl.offset != 0) || (bctl->index_ctl.size != 0)))
+	    ((bctl->data_ctl.size != 0) || (bctl->index_ctl.size != 0)))
 		return -EINVAL;
 
 	if (total < removed)
@@ -248,6 +248,19 @@ static int eblob_move_base_queue_to_array(struct eblob_backend *b, struct list_h
 	return err;
 }
 
+void eblob_defrag_reset_stats(struct eblob_backend *b)
+{
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_START_TIME, time(NULL));
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_BLOBS_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_ALIVE_DATA_SIZE, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_REMOVED_DATA_SIZE, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_ALIVE_RECORDS_NUMBER, 0);
+	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_REMOVED_RECORDS_NUMBER, 0);
+}
+
 
 /*!
  * eblob_defrag() - defrag (blocking call, synchronized)
@@ -263,10 +276,7 @@ int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir)
 
 	pthread_mutex_lock(&b->defrag_lock);
 
-	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_START_TIME, time(NULL));
-	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_VIEW_USED_NUMBER, 0);
-	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SORTED_VIEW_USED_NUMBER, 0);
-	eblob_stat_set(b->stat, EBLOB_GST_DATASORT_SINGLE_PASS_VIEW_USED_NUMBER, 0);
+	eblob_defrag_reset_stats(b);
 
 	/* Count approximate number of bases */
 	list_for_each_entry(bctl, &b->bases, base_entry)
@@ -307,6 +317,7 @@ int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir)
 			EBLOB_WARNX(b->cfg.log, EBLOB_LOG_INFO, "defrag: empty blob - removing.");
 
 			pthread_mutex_lock(&b->lock);
+			pthread_rwlock_wrlock(&b->iteration_lock);
 			/* Remove it from list, but do not poisson next and prev */
 			__list_del(bctl->base_entry.prev, bctl->base_entry.next);
 
@@ -317,6 +328,7 @@ int eblob_defrag_in_dir(struct eblob_backend *b, char *chunks_dir)
 			eblob_base_wait_locked(bctl);
 			_eblob_base_ctl_cleanup(bctl);
 			pthread_mutex_unlock(&bctl->lock);
+			pthread_rwlock_unlock(&b->iteration_lock);
 			pthread_mutex_unlock(&b->lock);
 			continue;
 		}
